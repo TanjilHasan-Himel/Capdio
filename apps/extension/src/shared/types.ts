@@ -60,6 +60,48 @@ export const QUALITY_PRESETS: Record<QualityPresetName, QualityPreset> = {
   }
 };
 
+export function getPreset(name: QualityPresetName): QualityPreset {
+  return QUALITY_PRESETS[name] || QUALITY_PRESETS.balanced;
+}
+
+export function formatQualityDisplay(
+  requested: { presetName?: QualityPresetName; width?: number; height?: number; fps?: number },
+  actual?: { width?: number; height?: number; fps?: number }
+): {
+  badgeLabel: string;
+  detailLabel: string;
+  isConstrained: boolean;
+} {
+  const reqPreset = requested.presetName ? QUALITY_PRESETS[requested.presetName] : null;
+  const reqWidth = requested.width || reqPreset?.width || 1920;
+  const reqHeight = requested.height || reqPreset?.height || 1080;
+  const reqFps = requested.fps || reqPreset?.fps || 30;
+
+  const actWidth = actual?.width || reqWidth;
+  const actHeight = actual?.height || reqHeight;
+  const actFps = actual?.fps || reqFps;
+
+  const isConstrained = actWidth < reqWidth || actHeight < reqHeight || actFps < reqFps;
+
+  const presetNameUpper = requested.presetName
+    ? requested.presetName.charAt(0).toUpperCase() + requested.presetName.slice(1)
+    : '';
+
+  const badgeLabel = isConstrained
+    ? `${actHeight}p @ ${actFps}fps (Constrained)`
+    : `${actHeight}p @ ${actFps}fps`;
+
+  const detailLabel = isConstrained
+    ? `Requested: ${presetNameUpper ? presetNameUpper + ' ' : ''}${reqWidth}×${reqHeight} @ ${reqFps} FPS • Actual: ${actWidth}×${actHeight} @ ${actFps} FPS (Display Constrained)`
+    : `Quality: ${actWidth}×${actHeight} @ ${actFps} FPS (${presetNameUpper || 'Native'})`;
+
+  return {
+    badgeLabel,
+    detailLabel,
+    isConstrained
+  };
+}
+
 export interface CodecCapabilityReport {
   supportedMimeTypes: string[];
   bestWebM: string | null;
@@ -70,6 +112,7 @@ export interface CodecCapabilityReport {
 }
 
 export interface CaptureProfile {
+  presetName?: QualityPresetName;
   width: number;
   height: number;
   fps: 24 | 30 | 60;
@@ -93,6 +136,9 @@ export interface SourceInfo {
   tabId?: number;
   displayLabel: string;
   authorizedAt: string;
+  requestedWidth?: number;
+  requestedHeight?: number;
+  requestedFps?: number;
   actualWidth?: number;
   actualHeight?: number;
   actualFps?: number;

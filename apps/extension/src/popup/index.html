@@ -326,6 +326,16 @@
       </div>
 
       <div class="control-group">
+        <label for="fpsSelect">Frame Rate (FPS)</label>
+        <select id="fpsSelect">
+          <option value="24">24 FPS (Cinematic / Efficient)</option>
+          <option value="30" selected>30 FPS (Standard)</option>
+          <option value="60">60 FPS (Smooth Motion)</option>
+        </select>
+        <div id="presetHint" style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Requested: 1080p @ 30 FPS (5.0 Mbps)</div>
+      </div>
+
+      <div class="control-group">
         <label for="formatPreference">Format Preference</label>
         <select id="formatPreference">
           <option value="webm" selected>WebM (VP9 / Opus)</option>
@@ -353,7 +363,10 @@
         <span id="recordingTimer" style="font-size: 16px; font-weight: 700; color: #ef4444; font-family: monospace;">00:00</span>
       </div>
       <div class="control-group">
-        <label>Active Session</label>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <label style="margin: 0;">Measured Quality</label>
+          <span id="liveQualityBadge" style="font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #1e293b; color: #60a5fa; font-family: monospace;">-</span>
+        </div>
         <div id="activeSessionInfo" style="font-size: 11px; color: var(--text-muted); word-break: break-all;">-</div>
       </div>
       <div class="btn-row">
@@ -365,7 +378,7 @@
     <div id="readySection" class="hidden">
       <div class="control-group" style="text-align: center; padding: 12px 0;">
         <span style="font-size: 14px; color: var(--success); font-weight: 600;">Recording Complete!</span>
-        <div id="readyInfo" style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Ready for download</div>
+        <div id="readyInfo" style="font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.4; white-space: pre-line;">Ready for download</div>
       </div>
       <button id="downloadButton" class="primary-btn" style="background: #10b981; margin-bottom: 8px;">Download WebM</button>
       <button id="viewInLibraryBtn" class="primary-btn" style="background: #3b82f6; margin-bottom: 8px;">View in Library</button>

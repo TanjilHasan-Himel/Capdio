@@ -137,10 +137,27 @@ document.addEventListener('DOMContentLoaded', async () => {
       const formatStr = isMp4 ? 'MP4 (H.264 / AAC)' : 'WebM (VP9 / Opus)';
       const sizeStr = formatBytes(media.totalBytes || session.totalBytes || 0);
       const durStr = formatDuration(session.durationMs || 0);
-      const resStr = `${session.profile?.width || 1920}x${session.profile?.height || 1080}`;
+
+      const src = session.sources?.[0];
+      const actualW = src?.actualWidth || session.profile?.width || 1920;
+      const actualH = src?.actualHeight || session.profile?.height || 1080;
+      const actualFps = src?.actualFps || session.profile?.fps || 30;
+      const reqW = src?.requestedWidth || session.profile?.width;
+      const reqH = src?.requestedHeight || session.profile?.height;
+      const reqFps = src?.requestedFps || session.profile?.fps;
+      const presetName = session.profile?.presetName;
+      const isConstrained = reqW && (actualW < reqW || (reqH && actualH < reqH));
+      const presetLabel = presetName ? `${presetName.toUpperCase()} ` : '';
+
+      let qualitySummary = `Measured: ${actualW}×${actualH} @ ${actualFps} FPS`;
+      if (isConstrained && reqW && reqH) {
+        qualitySummary += ` (Display Constrained from ${presetLabel}${reqW}×${reqH} @ ${reqFps} FPS)`;
+      } else if (presetName) {
+        qualitySummary += ` (${presetLabel.trim()} Preset)`;
+      }
 
       if (previewDetails) {
-        previewDetails.textContent = `${formatStr} • ${resStr} @ ${session.profile?.fps || 30} FPS • ${durStr} • ${sizeStr}`;
+        previewDetails.textContent = `${formatStr} • ${qualitySummary} • ${durStr} • ${sizeStr}`;
       }
       if (previewDownloadBtn) {
         previewDownloadBtn.textContent = `Download ${isMp4 ? 'MP4' : 'WebM'} (${sizeStr})`;
@@ -315,6 +332,22 @@ document.addEventListener('DOMContentLoaded', async () => {
       const dateStr = formatDate(session.createdAt);
       const sourceLabel = session.sources?.[0]?.displayLabel || 'Captured Source';
 
+      const src = session.sources?.[0];
+      const actualW = src?.actualWidth || session.profile?.width || 1920;
+      const actualH = src?.actualHeight || session.profile?.height || 1080;
+      const actualFps = src?.actualFps || session.profile?.fps || 30;
+      const reqW = src?.requestedWidth || session.profile?.width;
+      const reqH = src?.requestedHeight || session.profile?.height;
+      const reqFps = src?.requestedFps || session.profile?.fps;
+      const presetName = session.profile?.presetName;
+      const isConstrained = reqW && (actualW < reqW || (reqH && actualH < reqH));
+
+      const presetBadgeHtml = presetName ? `
+        <span class="preset-badge" style="display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: ${isConstrained ? 'rgba(245, 158, 11, 0.15)' : '#0f172a'}; border: 1px solid ${isConstrained ? 'rgba(245, 158, 11, 0.4)' : '#334155'}; color: ${isConstrained ? '#fbbf24' : '#94a3b8'}; text-transform: uppercase;">
+          ${presetName}${isConstrained ? ' (Constrained)' : ''}
+        </span>
+      ` : '';
+
       card.innerHTML = `
         <div>
           <div class="card-top">
@@ -322,7 +355,10 @@ document.addEventListener('DOMContentLoaded', async () => {
               <h2 class="card-title">${session.title || 'Untitled Recording'}</h2>
               <div class="card-date">${dateStr} • ${sourceLabel}</div>
             </div>
-            <span class="format-badge ${isPartial ? 'partial' : ''}">${isPartial ? 'Partial' : formatStr}</span>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              ${presetBadgeHtml}
+              <span class="format-badge ${isPartial ? 'partial' : ''}">${isPartial ? 'Partial' : formatStr}</span>
+            </div>
           </div>
 
           <div class="card-metrics">
@@ -336,7 +372,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             </div>
             <div class="metric-item">
               <span class="metric-label">Quality:</span>
-              <span class="metric-value">${session.profile?.height || 1080}p</span>
+              <span class="metric-value" title="${isConstrained ? `Requested ${reqW}×${reqH} @ ${reqFps}fps, display constrained to ${actualW}×${actualH} @ ${actualFps}fps` : `Measured: ${actualW}×${actualH} @ ${actualFps}fps`}">${actualH}p @ ${actualFps}fps${isConstrained ? ' ⚠️' : ''}</span>
             </div>
           </div>
         </div>

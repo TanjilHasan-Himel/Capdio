@@ -38,6 +38,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const captureTarget = document.getElementById('captureTarget') as HTMLSelectElement;
   const qualityPreset = document.getElementById('qualityPreset') as HTMLSelectElement;
+  const fpsSelect = document.getElementById('fpsSelect') as HTMLSelectElement;
+  const presetHint = document.getElementById('presetHint');
+  const liveQualityBadge = document.getElementById('liveQualityBadge');
   const formatPreference = document.getElementById('formatPreference') as HTMLSelectElement;
   const mp4Option = document.getElementById('mp4Option') as HTMLOptionElement;
   const tabAudioToggle = document.getElementById('tabAudioToggle') as HTMLInputElement;
@@ -49,8 +52,86 @@ document.addEventListener('DOMContentLoaded', async () => {
   let elapsedSeconds = 0;
   let lastRecordingBase64: string | null = null;
   let lastRecordingMimeType = 'video/webm';
-  let lastRecordingIsFallback = false;
   let recoverableSession: any = null;
+
+  function updatePresetHint() {
+    if (!presetHint || !qualityPreset) return;
+    const presetKey = (qualityPreset.value || 'balanced') as QualityPresetName;
+    const preset = QUALITY_PRESETS[presetKey] || QUALITY_PRESETS.balanced;
+    const selectedFps = fpsSelect ? parseInt(fpsSelect.value, 10) || preset.fps : preset.fps;
+    const mbps = (preset.videoBitrate / 1_000_000).toFixed(1);
+    presetHint.textContent = `Requested: ${preset.height}p @ ${selectedFps} FPS (${mbps} Mbps)`;
+  }
+
+  if (qualityPreset) {
+    qualityPreset.addEventListener('change', () => {
+      const presetKey = (qualityPreset.value || 'balanced') as QualityPresetName;
+      const preset = QUALITY_PRESETS[presetKey] || QUALITY_PRESETS.balanced;
+      if (fpsSelect) {
+        fpsSelect.value = String(preset.fps);
+      }
+      updatePresetHint();
+    });
+  }
+
+  if (fpsSelect) {
+    fpsSelect.addEventListener('change', () => {
+      updatePresetHint();
+    });
+  }
+
+  updatePresetHint();
+
+  function updateLiveQualityDisplay(session?: any, videoSettings?: any) {
+    if (!liveQualityBadge) return;
+    const src = session?.sources?.[0];
+    const actualW = videoSettings?.width || src?.actualWidth;
+    const actualH = videoSettings?.height || src?.actualHeight;
+    const actualFps = videoSettings?.frameRate || src?.actualFps || 30;
+    const reqW = src?.requestedWidth || session?.profile?.width;
+    const reqH = src?.requestedHeight || session?.profile?.height;
+
+    if (actualW && actualH) {
+      const isConstrained = reqW && (actualW < reqW || (reqH && actualH < reqH));
+      liveQualityBadge.textContent = `${actualW}×${actualH} @ ${actualFps}fps${isConstrained ? ' (Constrained)' : ''}`;
+      liveQualityBadge.style.color = isConstrained ? '#fbbf24' : '#60a5fa';
+      liveQualityBadge.title = isConstrained
+        ? `Requested ${reqW}×${reqH}, display viewport constrained to ${actualW}×${actualH}`
+        : `Actual measured stream: ${actualW}×${actualH} @ ${actualFps} FPS`;
+    } else {
+      liveQualityBadge.textContent = 'Measuring...';
+      liveQualityBadge.style.color = 'var(--text-muted)';
+    }
+  }
+
+  function formatReadyQualityText(recResult: any, session?: any): string {
+    const isMp4 = (recResult.mimeType || recResult.negotiatedMimeType || '').includes('mp4');
+    const mb = ((recResult.totalBytes || 0) / (1024 * 1024)).toFixed(2);
+    let detail = `Size: ${mb} MB (${recResult.chunksCount || 0} chunks) • ${isMp4 ? 'MP4' : 'WebM'}`;
+    if (recResult.isFallback) {
+      detail += ' (fallback from MP4)';
+    }
+
+    const src = session?.sources?.[0];
+    const profile = session?.profile;
+    const actualW = recResult.videoSettings?.width || src?.actualWidth;
+    const actualH = recResult.videoSettings?.height || src?.actualHeight;
+    const actualFps = recResult.videoSettings?.frameRate || src?.actualFps;
+    const reqW = src?.requestedWidth || profile?.width;
+    const reqH = src?.requestedHeight || profile?.height;
+    const reqFps = src?.requestedFps || profile?.fps;
+    const presetName = profile?.presetName;
+
+    if (actualW && actualH) {
+      const isConstrained = reqW && (actualW < reqW || (reqH && actualH < reqH));
+      const presetLabel = presetName ? `${presetName.toUpperCase()} ` : '';
+      detail += `\nActual: ${actualW}×${actualH} @ ${actualFps || 30} FPS${isConstrained ? ' (Display Constrained)' : ' (Native Match)'}`;
+      if (reqW && reqH) {
+        detail += ` • Requested: ${presetLabel}${reqW}×${reqH} @ ${reqFps || 30} FPS`;
+      }
+    }
+    return detail;
+  }
 
   async function checkRecoverableSessions() {
     if (currentStatus !== 'idle') {
@@ -117,25 +198,33 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (elapsedSeconds % 2 === 0) {
           try {
             const check = await sendTypedMessage<any>('background', 'GET_STATUS');
-            if (check.success && check.data && check.data.status !== currentStatus) {
-              if (check.data.status === 'ready') {
-                stopTimer();
-                renderState('ready', check.data.activeSessionId);
-                if (check.data.lastTerminationReason === 'low_storage') {
-                  showNotice(
-                    'Low Storage Auto-Stop',
-                    'Recording stopped automatically because storage quota reached critical limits. Your recording was safely saved and is ready to download.'
-                  );
-                } else if (check.data.lastTerminationReason === 'source_tab_closed') {
-                  showNotice(
-                    'Captured Tab Closed',
-                    'The captured browser tab was closed. Your recording was safely saved up to that moment and is ready to download.'
-                  );
-                } else if (check.data.lastTerminationReason === 'track_ended') {
-                  showNotice(
-                    'Capture Ended',
-                    'Screen or window sharing was ended. Your recording was safely saved and is ready to download.'
-                  );
+            if (check.success && check.data) {
+              if (check.data.activeSession) {
+                updateLiveQualityDisplay(check.data.activeSession);
+              }
+              if (check.data.status !== currentStatus) {
+                if (check.data.status === 'ready') {
+                  stopTimer();
+                  renderState('ready', check.data.activeSessionId);
+                  if (check.data.lastRecordingResult && readyInfo) {
+                    readyInfo.textContent = formatReadyQualityText(check.data.lastRecordingResult, check.data.activeSession);
+                  }
+                  if (check.data.lastTerminationReason === 'low_storage') {
+                    showNotice(
+                      'Low Storage Auto-Stop',
+                      'Recording stopped automatically because storage quota reached critical limits. Your recording was safely saved and is ready to download.'
+                    );
+                  } else if (check.data.lastTerminationReason === 'source_tab_closed') {
+                    showNotice(
+                      'Captured Tab Closed',
+                      'The captured browser tab was closed. Your recording was safely saved up to that moment and is ready to download.'
+                    );
+                  } else if (check.data.lastTerminationReason === 'track_ended') {
+                    showNotice(
+                      'Capture Ended',
+                      'Screen or window sharing was ended. Your recording was safely saved and is ready to download.'
+                    );
+                  }
                 }
               }
             }
@@ -170,6 +259,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Toggle visible sections
     if (status === 'idle') {
       stopTimer();
+      if (liveQualityBadge) {
+        liveQualityBadge.textContent = '-';
+        liveQualityBadge.style.color = '#60a5fa';
+      }
       configSection?.classList.remove('hidden');
       activeSection?.classList.add('hidden');
       readySection?.classList.add('hidden');
@@ -212,7 +305,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (recResult.base64Data) {
           lastRecordingBase64 = recResult.base64Data;
           lastRecordingMimeType = recResult.mimeType || recResult.negotiatedMimeType || 'video/webm';
-          lastRecordingIsFallback = !!recResult.isFallback;
           (window as any).__lastRecordingBase64 = recResult.base64Data;
           (window as any).__lastResult = statusRes.data;
 
@@ -222,12 +314,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
 
           if (readyInfo) {
-            const mb = (recResult.totalBytes / (1024 * 1024)).toFixed(2);
-            let detail = `Size: ${mb} MB (${recResult.chunksCount} chunks) • ${isMp4 ? 'MP4' : 'WebM'}`;
-            if (lastRecordingIsFallback) {
-              detail += ' (fallback from MP4)';
-            }
-            readyInfo.textContent = detail;
+            readyInfo.textContent = formatReadyQualityText(recResult, statusRes.data.activeSession || statusRes.data.session);
           }
         }
       }
@@ -262,6 +349,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       renderState(statusRes.data.status, statusRes.data.activeSessionId);
       if (statusRes.data.status === 'recording') {
+        updateLiveQualityDisplay(statusRes.data.activeSession);
         startTimer(false);
       }
     }
@@ -293,12 +381,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       const presetKey = (qualityPreset?.value || 'balanced') as QualityPresetName;
       const preset = QUALITY_PRESETS[presetKey] || QUALITY_PRESETS.balanced;
+      const selectedFps = (fpsSelect ? parseInt(fpsSelect.value, 10) : preset.fps) || preset.fps;
       const formatPref = ((formatPreference?.value || 'webm') as 'webm' | 'mp4');
 
       const profile: CaptureProfile = {
+        presetName: presetKey,
         width: preset.width,
         height: preset.height,
-        fps: preset.fps,
+        fps: selectedFps as 24 | 30 | 60,
         videoBitrate: preset.videoBitrate,
         mimePreference: formatPref,
         tabAudio: tabAudioToggle?.checked ?? true,
@@ -321,6 +411,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (res.success && res.data) {
             startTimer();
             renderState(res.data.status, res.data.sessionId);
+            updateLiveQualityDisplay(res.data.session, res.data.videoSettings);
           } else {
             const title = res.errorCode === 'E_STORAGE_QUOTA' ? 'Insufficient Storage' : 'Permission Refusal / Cancellation';
             showNotice(title, res.error || 'Screen capture was cancelled or denied.');
@@ -370,6 +461,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (res.success && res.data) {
             startTimer();
             renderState(res.data.status, res.data.sessionId);
+            updateLiveQualityDisplay(res.data.session, res.data.videoSettings);
           } else {
             const title = res.errorCode === 'E_STORAGE_QUOTA' ? 'Insufficient Storage' : 'Capture Failed';
             showNotice(title, res.error || 'Unknown error');
@@ -439,7 +531,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (recResult?.base64Data) {
           lastRecordingBase64 = recResult.base64Data;
           lastRecordingMimeType = recResult.mimeType || recResult.negotiatedMimeType || 'video/webm';
-          lastRecordingIsFallback = !!recResult.isFallback;
           (window as any).__lastRecordingBase64 = recResult.base64Data;
           (window as any).__lastResult = res.data;
 
@@ -449,12 +540,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
 
           if (readyInfo) {
-            const mb = (recResult.totalBytes / (1024 * 1024)).toFixed(2);
-            let detail = `Size: ${mb} MB (${recResult.chunksCount} chunks) • ${isMp4 ? 'MP4' : 'WebM'}`;
-            if (lastRecordingIsFallback) {
-              detail += ' (fallback from MP4)';
-            }
-            readyInfo.textContent = detail;
+            readyInfo.textContent = formatReadyQualityText(recResult, res.data.session || res.data.activeSession);
           }
         }
         renderState(res.data.status, activeSessionId);
@@ -506,7 +592,6 @@ document.addEventListener('DOMContentLoaded', async () => {
           const rec = res.data.recordingResult;
           lastRecordingBase64 = rec.base64Data;
           lastRecordingMimeType = rec.mimeType || 'video/webm';
-          lastRecordingIsFallback = false;
           (window as any).__lastRecordingBase64 = rec.base64Data;
           (window as any).__lastResult = res.data;
 

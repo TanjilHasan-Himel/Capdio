@@ -16,6 +16,7 @@ let activeMicStream: MediaStream | null = null;
 let activeSessionId: string | null = null;
 let activeNegotiatedMime: string | null = null;
 let activeIsFallback = false;
+let activeVideoSettings: MediaTrackSettings | null = null;
 let recordedChunks: Blob[] = [];
 let chunkSequenceNumber = 0;
 let recordingStartTimeMs = 0;
@@ -53,6 +54,7 @@ function cleanupAudioAndStreams() {
   monitorGainNode = null;
   tabRecordGainNode = null;
   micRecordGainNode = null;
+  activeVideoSettings = null;
 }
 
 function probeHostCapabilities() {
@@ -289,14 +291,21 @@ async function startCaptureAndRecord(payload: {
     activeRecorder.start(250); // Slice every 250ms for incremental reliability
     await startPromise;
 
-    console.log('[Capdio Offscreen] MediaRecorder actively recording with MIME:', activeNegotiatedMime);
+    const rawSettings = videoTracks[0]?.getSettings() || {};
+    activeVideoSettings = {
+      width: rawSettings.width || profile.width,
+      height: rawSettings.height || profile.height,
+      frameRate: rawSettings.frameRate || profile.fps
+    };
+
+    console.log('[Capdio Offscreen] MediaRecorder actively recording with MIME:', activeNegotiatedMime, 'settings:', activeVideoSettings);
 
     return {
       sessionId,
       status: 'recording',
       mimeType: activeNegotiatedMime,
       isFallback: activeIsFallback,
-      videoSettings: videoTracks[0]?.getSettings(),
+      videoSettings: activeVideoSettings,
       audioTracksCount: recordingStream.getAudioTracks().length,
       audioMetadata
     };
@@ -419,7 +428,8 @@ async function stopCaptureAndRecord(requestedSessionId?: string) {
         mimeType: finalBlob.type,
         negotiatedMimeType: activeNegotiatedMime || finalBlob.type,
         isFallback: activeIsFallback,
-        base64Data
+        base64Data,
+        videoSettings: activeVideoSettings
       };
 
       lastFinalizedResult = result;
@@ -427,6 +437,7 @@ async function stopCaptureAndRecord(requestedSessionId?: string) {
       activeSessionId = null;
       activeNegotiatedMime = null;
       activeIsFallback = false;
+      activeVideoSettings = null;
       recordedChunks = [];
 
       return result;
