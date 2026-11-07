@@ -26,6 +26,7 @@
     "spike:ocs-002": "node test-harness/test-action-click.js",
     "benchmark:ocs-003": "node test-harness/test-60s-harness.js",
     "test:gate-g1": "node test-harness/test-gate-g1-verification.js",
+    "test:gate-g2": "node test-harness/test-gate-g2-verification.js",
     "test": "npm run typecheck && npm run test:unit && npm run test:smoke"
   },
   "keywords": [
