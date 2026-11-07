@@ -1,0 +1,133 @@
+{
+  "gate": "Gate G1 — Stable Capture Core",
+  "timestamp": "2026-11-07T05:58:04.382Z",
+  "status": "PASSED",
+  "environment": {
+    "chromeVersion": "Chrome/152.0.7977.42",
+    "platform": "win32",
+    "nodeVersion": "v24.13.0"
+  },
+  "configuration": {
+    "preset": "high",
+    "resolution": "1920x1080",
+    "fps": 30,
+    "tabAudio": true,
+    "microphone": true,
+    "durationSeconds": 15
+  },
+  "mediaIntegrity": {
+    "container": "WebM (VP9/Opus)",
+    "totalBytes": 11308730,
+    "totalMB": 10.78,
+    "magicHeaderValid": true,
+    "filePath": "C:\\Users\\Himel\\Desktop\\New folder (2)\\recordings\\gate-g1-recording-1080p.webm"
+  },
+  "timingAndState": {
+    "fsmTransitionsTested": [
+      "IDLE",
+      "REQUESTING_PERMISSION",
+      "PREPARING",
+      "RECORDING",
+      "PAUSED",
+      "RECORDING",
+      "FINALIZING",
+      "READY",
+      "IDLE"
+    ],
+    "actionBadgeVerified": [
+      "REC",
+      "PAUS",
+      "cleared"
+    ],
+    "timerFrozenDuringPause": true
+  },
+  "memoryMetrics": {
+    "sampleCount": 14,
+    "samples": [
+      {
+        "timestampSec": 11.3,
+        "heapUsedMB": 1.91,
+        "heapTotalMB": 3,
+        "timerDisplay": "00:01"
+      },
+      {
+        "timestampSec": 14,
+        "heapUsedMB": 1.91,
+        "heapTotalMB": 3,
+        "timerDisplay": "00:04"
+      },
+      {
+        "timestampSec": 15.8,
+        "heapUsedMB": 1.92,
+        "heapTotalMB": 3,
+        "timerDisplay": "00:06"
+      },
+      {
+        "timestampSec": 16.7,
+        "heapUsedMB": 1.92,
+        "heapTotalMB": 3,
+        "timerDisplay": "00:07"
+      },
+      {
+        "timestampSec": 20.9,
+        "heapUsedMB": 1.92,
+        "heapTotalMB": 3,
+        "timerDisplay": "00:10"
+      },
+      {
+        "timestampSec": 21.9,
+        "heapUsedMB": 1.92,
+        "heapTotalMB": 3,
+        "timerDisplay": "00:12"
+      },
+      {
+        "timestampSec": 22.3,
+        "heapUsedMB": 1.93,
+        "heapTotalMB": 3,
+        "timerDisplay": "00:12"
+      },
+      {
+        "timestampSec": 22.8,
+        "heapUsedMB": 1.95,
+        "heapTotalMB": 3,
+        "timerDisplay": "00:12"
+      },
+      {
+        "timestampSec": 24.2,
+        "heapUsedMB": 1.95,
+        "heapTotalMB": 3,
+        "timerDisplay": "00:12"
+      },
+      {
+        "timestampSec": 25.7,
+        "heapUsedMB": 1.98,
+        "heapTotalMB": 3.25,
+        "timerDisplay": "00:12"
+      },
+      {
+        "timestampSec": 27.8,
+        "heapUsedMB": 1.98,
+        "heapTotalMB": 3.25,
+        "timerDisplay": "00:14"
+      },
+      {
+        "timestampSec": 29.1,
+        "heapUsedMB": 1.98,
+        "heapTotalMB": 3.25,
+        "timerDisplay": "00:16"
+      },
+      {
+        "timestampSec": 30.6,
+        "heapUsedMB": 1.98,
+        "heapTotalMB": 3.25,
+        "timerDisplay": "00:17"
+      },
+      {
+        "timestampSec": 32,
+        "heapUsedMB": 1.98,
+        "heapTotalMB": 3.25,
+        "timerDisplay": "00:19"
+      }
+    ]
+  }
+}
