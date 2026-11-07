@@ -144,6 +144,7 @@ export type ErrorCode =
   | 'E_ACCESS_DENIED'
   | 'E_FINALIZE_TIMEOUT'
   | 'E_RECOVERY_PARTIAL'
+  | 'E_SESSION_UNRECOVERABLE'
   | 'E_BROWSER_INCOMPATIBLE'
   | 'E_MULTI_TAB_NOT_SUPPORTED';
 
@@ -252,6 +253,41 @@ export interface GetStorageEstimateMessage extends BaseMessage {
   action: 'GET_STORAGE_ESTIMATE';
 }
 
+export interface ListRecoverableSessionsMessage extends BaseMessage {
+  action: 'LIST_RECOVERABLE_SESSIONS';
+}
+
+export interface RecoverSessionMessage extends BaseMessage {
+  action: 'RECOVER_SESSION';
+  payload: {
+    sessionId: string;
+  };
+}
+
+export interface DiscardRecoverableSessionMessage extends BaseMessage {
+  action: 'DISCARD_RECOVERABLE_SESSION';
+  payload: {
+    sessionId: string;
+  };
+}
+
+export interface OffscreenRecoverSessionMessage extends BaseMessage {
+  target: 'offscreen';
+  action: 'OFFSCREEN_RECOVER_SESSION';
+  payload: {
+    sessionId: string;
+    mimeType?: string;
+  };
+}
+
+export interface GetRecoverableInfoMessage extends BaseMessage {
+  target: 'offscreen';
+  action: 'GET_RECOVERABLE_INFO';
+  payload: {
+    sessionId: string;
+  };
+}
+
 export interface OffscreenStartMessage extends BaseMessage {
   target: 'offscreen';
   action: 'OFFSCREEN_START';
@@ -321,6 +357,11 @@ export type ExtensionMessage =
   | GetRecordingDataMessage
   | DeleteRecordingDataMessage
   | GetStorageEstimateMessage
+  | ListRecoverableSessionsMessage
+  | RecoverSessionMessage
+  | DiscardRecoverableSessionMessage
+  | OffscreenRecoverSessionMessage
+  | GetRecoverableInfoMessage
   | OffscreenStartMessage
   | OffscreenPauseMessage
   | OffscreenResumeMessage

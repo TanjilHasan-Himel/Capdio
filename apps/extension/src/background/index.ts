@@ -76,7 +76,7 @@ let totalPausedMs = 0;
 // Source Tracking & Intact Recording Persistence (OCS-108)
 let activeCapturedTabId: number | null = null;
 let lastRecordingResult: any = null;
-let lastTerminationReason: 'user_stop' | 'source_tab_closed' | 'track_ended' | null = null;
+let lastTerminationReason: 'user_stop' | 'source_tab_closed' | 'track_ended' | 'low_storage' | 'interrupted' | null = null;
 
 export function getElapsedRecordingSeconds(): number {
   if (!recordingStartTime) return 0;
@@ -529,6 +529,70 @@ registerMessageListener('background', {
 
   GET_STORAGE_ESTIMATE: async () => {
     return await quotaMonitor.getEstimate();
+  },
+
+  LIST_RECOVERABLE_SESSIONS: async () => {
+    await sessionRegistry.auditUnfinalizedSessions();
+    return await sessionRegistry.getRecoverableSessions();
+  },
+
+  RECOVER_SESSION: async (msg: any) => {
+    const sessionId = msg.payload?.sessionId;
+    if (!sessionId) {
+      throw new MessageBusError('E_INVALID_MESSAGE', 'Missing sessionId for RECOVER_SESSION');
+    }
+
+    const session = await sessionRegistry.getSession(sessionId);
+    if (!session) {
+      throw new MessageBusError('E_INVALID_MESSAGE', `Session '${sessionId}' not found in registry`);
+    }
+
+    await ensureOffscreenDocument();
+    const mimeType = session.profile?.mimePreference === 'mp4' ? 'video/mp4' : 'video/webm';
+    const offscreenRes = await sendTypedMessage<any>('offscreen', 'OFFSCREEN_RECOVER_SESSION', {
+      sessionId,
+      mimeType
+    });
+
+    if (!offscreenRes.success || !offscreenRes.data) {
+      throw new MessageBusError(
+        offscreenRes.errorCode || 'E_SESSION_UNRECOVERABLE',
+        offscreenRes.error || `Failed to recover session '${sessionId}' from chunks`
+      );
+    }
+
+    // Mark session recovered in registry
+    const updatedManifest = await sessionRegistry.markSessionRecovered(sessionId, {
+      totalBytes: offscreenRes.data.totalBytes,
+      durationMs: offscreenRes.data.durationMs
+    });
+
+    // Update FSM coordinator state
+    stateMachine.markRecovered(sessionId);
+    lastRecordingResult = offscreenRes.data;
+    lastTerminationReason = 'interrupted';
+
+    return {
+      session: updatedManifest,
+      recordingResult: offscreenRes.data
+    };
+  },
+
+  DISCARD_RECOVERABLE_SESSION: async (msg: any) => {
+    const sessionId = msg.payload?.sessionId;
+    if (!sessionId) {
+      throw new MessageBusError('E_INVALID_MESSAGE', 'Missing sessionId for DISCARD_RECOVERABLE_SESSION');
+    }
+
+    await ensureOffscreenDocument();
+    try {
+      await sendTypedMessage('offscreen', 'DELETE_RECORDING_DATA', { sessionId });
+    } catch (err) {
+      console.warn(`[Capdio SW] Could not delete chunk data for discarded session '${sessionId}':`, err);
+    }
+
+    await sessionRegistry.deleteSession(sessionId);
+    return { success: true, sessionId };
   }
 });
 
@@ -562,11 +626,28 @@ chrome.runtime.onInstalled.addListener((details: chrome.runtime.InstalledDetails
   updateActionBadge('idle');
 });
 
-chrome.runtime.onStartup.addListener(() => {
-  console.log('[Capdio SW] onStartup fired; FSM reset to IDLE');
+chrome.runtime.onStartup.addListener(async () => {
+  console.log('[Capdio SW] onStartup fired; auditing unfinalized sessions...');
   stateMachine.reset();
   sessionRegistry.clearActiveSession();
   updateActionBadge('idle');
+  try {
+    const interrupted = await sessionRegistry.auditUnfinalizedSessions();
+    if (interrupted.length > 0) {
+      console.warn(`[Capdio SW] Startup audit found ${interrupted.length} interrupted recoverable sessions.`);
+    }
+  } catch (err) {
+    console.warn('[Capdio SW] Startup session audit error:', err);
+  }
+});
+
+// Run initial audit on worker evaluation to catch abrupt closures immediately
+sessionRegistry.auditUnfinalizedSessions().then((interrupted) => {
+  if (interrupted.length > 0) {
+    console.log(`[Capdio SW] Initial audit discovered ${interrupted.length} interrupted recoverable sessions.`);
+  }
+}).catch((err) => {
+  console.warn('[Capdio SW] Initial audit error:', err);
 });
 
 // Detect captured tab closure and finalize safely (OCS-108)

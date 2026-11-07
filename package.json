@@ -9,7 +9,7 @@
   "scripts": {
     "build": "node scripts/build-extension.js",
     "typecheck": "tsc --noEmit",
-    "test:unit": "node tests/unit/message-bus.test.js && node tests/unit/state-machine.test.js && node tests/unit/codec-detection.test.js && node tests/unit/manifest-migration.test.js && node tests/unit/chunk-storage.test.js && node tests/unit/quota-monitor.test.js",
+    "test:unit": "node tests/unit/message-bus.test.js && node tests/unit/state-machine.test.js && node tests/unit/codec-detection.test.js && node tests/unit/manifest-migration.test.js && node tests/unit/chunk-storage.test.js && node tests/unit/quota-monitor.test.js && node tests/unit/crash-recovery.test.js",
     "test:codec": "node test-harness/test-codec-fallback.js",
     "test:audio": "node test-harness/test-audio-routing.js",
     "test:controls": "node test-harness/test-recording-controls.js",
@@ -17,6 +17,7 @@
     "test:migration": "node test-harness/test-manifest-storage-migration.js",
     "test:chunks": "node test-harness/test-chunk-persistence.js",
     "test:quota": "node test-harness/test-storage-quota.js",
+    "test:recovery": "node test-harness/test-crash-recovery.js",
     "test:smoke": "node test-harness/test-apps-extension-smoke.js",
     "test:tab-capture": "node test-harness/test-apps-tab-capture.js",
     "test:screen-capture": "node test-harness/test-apps-screen-capture.js",

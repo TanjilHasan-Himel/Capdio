@@ -210,6 +210,41 @@
       cursor: pointer;
       padding: 0 2px;
     }
+
+    /* Recovery Center (OCS-204) */
+    .recovery-box {
+      background: rgba(245, 158, 11, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .recovery-box.hidden { display: none !important; }
+    .recovery-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+    .recovery-header strong {
+      font-size: 12px;
+      color: #fbbf24;
+    }
+    .recovery-icon {
+      font-size: 14px;
+    }
+    .recovery-text {
+      font-size: 11px;
+      color: #fef3c7;
+      line-height: 1.4;
+      margin-bottom: 6px;
+    }
+    .recovery-meta {
+      font-size: 10px;
+      color: #fde68a;
+      font-family: monospace;
+      margin-bottom: 8px;
+    }
   </style>
 </head>
 <body>
@@ -232,6 +267,20 @@
         <p id="noticeMessage">Screen capture was cancelled or denied. Please select a screen or window to start recording.</p>
       </div>
       <button id="noticeDismiss" class="notice-close" aria-label="Dismiss notice">&times;</button>
+    </div>
+
+    <!-- Recovery Center for Interrupted Sessions (OCS-204) -->
+    <div id="recoveryCenter" class="recovery-box hidden" role="region" aria-label="Recording Recovery Center">
+      <div class="recovery-header">
+        <span class="recovery-icon">⚠️</span>
+        <strong>Interrupted Recording Found</strong>
+      </div>
+      <p id="recoveryMessage" class="recovery-text">A previous recording was interrupted unexpectedly. Intact chunks are available for recovery.</p>
+      <div id="recoveryMeta" class="recovery-meta">-</div>
+      <div class="btn-row" style="margin-top: 6px;">
+        <button id="recoverButton" class="primary-btn" style="margin-top: 0; background: #f59e0b; color: #000; font-weight: 600; flex: 2;">Recover & Download</button>
+        <button id="discardRecoveryButton" class="danger-btn" style="padding: 8px 10px; font-size: 11px; flex: 1;">Discard</button>
+      </div>
     </div>
 
     <div id="configSection">

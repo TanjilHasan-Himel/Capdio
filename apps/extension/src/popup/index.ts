@@ -21,6 +21,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   const noticeMessage = document.getElementById('noticeMessage');
   const noticeDismiss = document.getElementById('noticeDismiss');
 
+  // Recovery Center Elements (OCS-204)
+  const recoveryCenter = document.getElementById('recoveryCenter');
+  const recoveryMessage = document.getElementById('recoveryMessage');
+  const recoveryMeta = document.getElementById('recoveryMeta');
+  const recoverButton = document.getElementById('recoverButton') as HTMLButtonElement;
+  const discardRecoveryButton = document.getElementById('discardRecoveryButton') as HTMLButtonElement;
+
   const recordButton = document.getElementById('recordButton') as HTMLButtonElement;
   const pauseResumeButton = document.getElementById('pauseResumeButton') as HTMLButtonElement;
   const stopButton = document.getElementById('stopButton') as HTMLButtonElement;
@@ -41,6 +48,32 @@ document.addEventListener('DOMContentLoaded', async () => {
   let lastRecordingBase64: string | null = null;
   let lastRecordingMimeType = 'video/webm';
   let lastRecordingIsFallback = false;
+  let recoverableSession: any = null;
+
+  async function checkRecoverableSessions() {
+    if (currentStatus !== 'idle') {
+      recoveryCenter?.classList.add('hidden');
+      return;
+    }
+    try {
+      const res = await sendTypedMessage<any>('background', 'LIST_RECOVERABLE_SESSIONS');
+      if (res.success && Array.isArray(res.data) && res.data.length > 0) {
+        recoverableSession = res.data[0];
+        if (recoveryCenter && recoveryMeta && recoveryMessage) {
+          const mb = ((recoverableSession.totalBytes || 0) / (1024 * 1024)).toFixed(2);
+          const title = recoverableSession.title || 'Previous recording';
+          recoveryMessage.textContent = `"${title}" was interrupted unexpectedly. Intact chunks are available.`;
+          recoveryMeta.textContent = `Session: ${recoverableSession.sessionId.substring(0, 16)}... • Size: ${mb} MB`;
+          recoveryCenter.classList.remove('hidden');
+        }
+      } else {
+        recoverableSession = null;
+        recoveryCenter?.classList.add('hidden');
+      }
+    } catch (err) {
+      console.warn('[Capdio Popup] Failed to check recoverable sessions:', err);
+    }
+  }
 
   function showNotice(title: string, message: string) {
     if (noticeBanner && noticeTitle && noticeMessage) {
@@ -142,7 +175,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         recordButton.disabled = false;
         recordButton.textContent = 'Start Recording';
       }
+      checkRecoverableSessions();
     } else if (status === 'recording' || status === 'paused' || status === 'preparing') {
+      recoveryCenter?.classList.add('hidden');
       configSection?.classList.add('hidden');
       activeSection?.classList.remove('hidden');
       readySection?.classList.add('hidden');
@@ -152,6 +187,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     } else if (status === 'ready') {
       stopTimer();
+      recoveryCenter?.classList.add('hidden');
       configSection?.classList.add('hidden');
       activeSection?.classList.add('hidden');
       readySection?.classList.remove('hidden');
@@ -449,6 +485,73 @@ document.addEventListener('DOMContentLoaded', async () => {
       a.download = `capdio-recording-${activeSessionId || Date.now()}.${ext}`;
       a.click();
       URL.revokeObjectURL(url);
+    });
+  }
+
+  // Recover Interrupted Session (OCS-204)
+  if (recoverButton) {
+    recoverButton.addEventListener('click', async () => {
+      if (!recoverableSession) return;
+      recoverButton.disabled = true;
+      recoverButton.textContent = 'Recovering...';
+
+      try {
+        const res = await sendTypedMessage<any>('background', 'RECOVER_SESSION', {
+          sessionId: recoverableSession.sessionId
+        });
+
+        if (res.success && res.data?.recordingResult) {
+          const rec = res.data.recordingResult;
+          lastRecordingBase64 = rec.base64Data;
+          lastRecordingMimeType = rec.mimeType || 'video/webm';
+          lastRecordingIsFallback = false;
+          (window as any).__lastRecordingBase64 = rec.base64Data;
+          (window as any).__lastResult = res.data;
+
+          const isMp4 = lastRecordingMimeType.includes('mp4');
+          if (downloadButton) {
+            downloadButton.textContent = isMp4 ? 'Download MP4 [Partial]' : 'Download WebM [Partial]';
+          }
+          if (readyInfo) {
+            const mb = (rec.totalBytes / (1024 * 1024)).toFixed(2);
+            readyInfo.textContent = `Recovered Partial: ${mb} MB (${rec.chunksCount} chunks) • ${isMp4 ? 'MP4' : 'WebM'}`;
+          }
+
+          recoveryCenter?.classList.add('hidden');
+          renderState('ready', recoverableSession.sessionId);
+          showNotice(
+            'Recovered Partial Recording',
+            'Your recording was interrupted but intact chunks were successfully recovered and are ready to download.'
+          );
+        } else {
+          showNotice('Recovery Failed', res.error || 'Could not assemble chunks from persistent storage.');
+        }
+      } catch (err: any) {
+        showNotice('Recovery Failed', err.message || 'Error occurred while recovering recording.');
+      } finally {
+        recoverButton.disabled = false;
+        recoverButton.textContent = 'Recover & Download';
+      }
+    });
+  }
+
+  // Discard Interrupted Session (OCS-204)
+  if (discardRecoveryButton) {
+    discardRecoveryButton.addEventListener('click', async () => {
+      if (!recoverableSession) return;
+      discardRecoveryButton.disabled = true;
+      try {
+        await sendTypedMessage('background', 'DISCARD_RECOVERABLE_SESSION', {
+          sessionId: recoverableSession.sessionId
+        });
+        recoverableSession = null;
+        recoveryCenter?.classList.add('hidden');
+        showNotice('Session Discarded', 'The interrupted recording was discarded.');
+      } catch (err: any) {
+        showNotice('Discard Failed', err.message || 'Could not discard session.');
+      } finally {
+        discardRecoveryButton.disabled = false;
+      }
     });
   }
 

@@ -488,7 +488,16 @@ registerMessageListener('offscreen', {
     if (!sessionId) {
       throw new MessageBusError('E_INVALID_MESSAGE', 'Missing sessionId for GET_RECORDING_DATA');
     }
-    const finalized = await chunkStorage.getFinalizedRecording(sessionId);
+    let finalized = await chunkStorage.getFinalizedRecording(sessionId);
+    if (!finalized) {
+      // Auto-assemble from persistent chunks if available (resilience fallback)
+      const chunkCount = await chunkStorage.getChunkCount(sessionId);
+      if (chunkCount > 0) {
+        console.log(`[Capdio Offscreen] GET_RECORDING_DATA assembling ${chunkCount} persistent chunks for session '${sessionId}'`);
+        finalized = await chunkStorage.assembleAndSaveFinalized(sessionId, 'video/webm', false);
+      }
+    }
+
     if (!finalized) {
       throw new MessageBusError('E_INVALID_MESSAGE', `No recording data found for session '${sessionId}'`);
     }
@@ -511,6 +520,60 @@ registerMessageListener('offscreen', {
       durationMs: finalized.durationMs,
       base64Data
     };
+  },
+
+  OFFSCREEN_RECOVER_SESSION: async (msg: any) => {
+    const sessionId = msg.payload?.sessionId;
+    if (!sessionId) {
+      throw new MessageBusError('E_INVALID_MESSAGE', 'Missing sessionId for OFFSCREEN_RECOVER_SESSION');
+    }
+
+    let finalized = await chunkStorage.getFinalizedRecording(sessionId);
+    let chunkCount = 0;
+
+    if (!finalized) {
+      const chunks = await chunkStorage.getChunks(sessionId);
+      if (!chunks || chunks.length === 0) {
+        throw new MessageBusError('E_SESSION_UNRECOVERABLE', `No chunks found in persistent storage for session '${sessionId}'`);
+      }
+      chunkCount = chunks.length;
+      const mimeType = msg.payload?.mimeType || 'video/webm';
+      console.log(`[Capdio Offscreen] Recovering session '${sessionId}' with ${chunkCount} chunks, MIME: ${mimeType}`);
+      finalized = await chunkStorage.assembleAndSaveFinalized(sessionId, mimeType, false);
+    } else {
+      chunkCount = await chunkStorage.getChunkCount(sessionId);
+    }
+
+    const base64Data = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const dataUrl = (reader.result as string) || '';
+        const marker = ';base64,';
+        const idx = dataUrl.indexOf(marker);
+        resolve(idx !== -1 ? dataUrl.substring(idx + marker.length) : '');
+      };
+      reader.readAsDataURL(finalized.blob);
+    });
+
+    return {
+      sessionId,
+      status: 'ready',
+      chunksCount: chunkCount,
+      totalBytes: finalized.totalBytes,
+      durationMs: finalized.durationMs,
+      mimeType: finalized.mimeType,
+      base64Data
+    };
+  },
+
+  GET_RECOVERABLE_INFO: async (msg: any) => {
+    const sessionId = msg.payload?.sessionId;
+    if (!sessionId) {
+      return { chunkCount: 0, totalBytes: 0 };
+    }
+    const chunkCount = await chunkStorage.getChunkCount(sessionId);
+    const totalBytes = await chunkStorage.getTotalBytes(sessionId);
+    return { sessionId, chunkCount, totalBytes };
   },
 
   DELETE_RECORDING_DATA: async (msg: any) => {

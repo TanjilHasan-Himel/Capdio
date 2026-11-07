@@ -16,14 +16,14 @@ export type StateChangeListener = (
  * Failure paths: ERROR or INTERRUPTED
  */
 const VALID_TRANSITIONS: Record<RecordStatus, readonly RecordStatus[]> = {
-  idle: ['requesting_permission', 'preparing', 'error'],
+  idle: ['requesting_permission', 'preparing', 'ready', 'error'],
   requesting_permission: ['preparing', 'idle', 'error'],
   preparing: ['recording', 'finalizing', 'idle', 'error'],
   recording: ['paused', 'finalizing', 'interrupted', 'error'],
   paused: ['recording', 'finalizing', 'interrupted', 'error'],
   finalizing: ['ready', 'error'],
   ready: ['idle'],
-  interrupted: ['idle'],
+  interrupted: ['idle', 'ready'],
   error: ['idle']
 };
 
@@ -194,6 +194,16 @@ export class RecordingStateMachine {
   }
 
   /**
+   * Helper: Recovered recording from persistent chunks.
+   */
+  public markRecovered(sessionId?: string): void {
+    if (sessionId) {
+      this._activeSessionId = sessionId;
+    }
+    this.transitionTo('ready', 'Session recovered from chunks');
+  }
+
+  /**
    * Helper: Source tab closed or capture interrupted.
    */
   public markInterrupted(reason = 'Source closed or disconnected'): void {
@@ -208,14 +218,26 @@ export class RecordingStateMachine {
   }
 
   /**
-   * Helper: Reset state back to IDLE.
+   * Helper: Reset state back to IDLE unconditionally (administrative / startup reset).
    * If keepLastError is true, preserves the error code/message so UI can report what happened.
    */
   public reset(keepLastError = false): void {
     const prevErr = this._lastError;
-    this.transitionTo('idle', 'FSM reset to idle');
-    if (keepLastError) {
+    const prevStatus = this._status;
+    this._status = 'idle';
+    this._activeSessionId = null;
+    if (!keepLastError) {
+      this._lastError = null;
+    } else {
       this._lastError = prevErr;
+    }
+
+    for (const listener of this._listeners) {
+      try {
+        listener('idle', prevStatus, 'FSM reset to idle');
+      } catch (err) {
+        console.error('[RecordingStateMachine] Error in state change listener:', err);
+      }
     }
   }
 }

@@ -93,7 +93,7 @@ export class SessionRegistry {
       session.finalizedAt = new Date().toISOString();
       session.isRecoverable = false;
     } else if (status === 'recording' || status === 'paused' || status === 'interrupted') {
-      session.isRecoverable = session.segments.length > 0;
+      session.isRecoverable = true;
     } else if (status === 'idle') {
       session.isRecoverable = false;
     }
@@ -263,6 +263,69 @@ export class SessionRegistry {
 
     // Sort newest first
     return sessions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  /**
+   * Scans all stored sessions and transitions any unfinalized (recording/paused)
+   * sessions to 'interrupted' with isRecoverable = true.
+   * Call on extension startup or worker activation (OCS-204).
+   */
+  public async auditUnfinalizedSessions(): Promise<SessionManifest[]> {
+    const all = await this.listSessions();
+    const updated: SessionManifest[] = [];
+
+    for (const session of all) {
+      if (session.status === 'recording' || session.status === 'paused') {
+        console.warn(`[SessionRegistry] Detected unfinalized session '${session.sessionId}' in state '${session.status}'. Transitioning to 'interrupted'.`);
+        session.status = 'interrupted';
+        session.isRecoverable = true;
+        session.errorCode = 'E_RECOVERY_PARTIAL';
+        await this._persistSession(session);
+        updated.push(session);
+      }
+    }
+
+    return updated;
+  }
+
+  /**
+   * Returns all sessions currently eligible for crash recovery.
+   */
+  public async getRecoverableSessions(): Promise<SessionManifest[]> {
+    await this.auditUnfinalizedSessions();
+    const all = await this.listSessions();
+    return all.filter(s => s.status === 'interrupted' && s.isRecoverable);
+  }
+
+  /**
+   * Marks an interrupted session as recovered and ready for download/library view.
+   */
+  public async markSessionRecovered(
+    sessionId: string,
+    recoveredData?: { totalBytes?: number; durationMs?: number }
+  ): Promise<SessionManifest> {
+    const session = await this.getSession(sessionId);
+    if (!session) {
+      throw new Error(`Session '${sessionId}' not found`);
+    }
+
+    session.status = 'ready';
+    session.isRecoverable = false;
+    session.finalizedAt = new Date().toISOString();
+
+    if (!session.title?.startsWith('[Partial]')) {
+      session.title = `[Partial] ${session.title || 'Recording'}`;
+    }
+
+    if (typeof recoveredData?.totalBytes === 'number') {
+      session.totalBytes = recoveredData.totalBytes;
+    }
+    if (typeof recoveredData?.durationMs === 'number') {
+      session.durationMs = recoveredData.durationMs;
+    }
+
+    await this._persistSession(session);
+    return session;
   }
 
   /**
