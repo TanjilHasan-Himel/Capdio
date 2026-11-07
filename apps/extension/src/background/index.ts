@@ -492,6 +492,21 @@ registerMessageListener('background', {
     await ensureOffscreenDocument();
     const res = await sendTypedMessage<any>('offscreen', 'GET_AUDIO_STATUS');
     return res.data;
+  },
+
+  GET_RECORDING_DATA: async (msg: any) => {
+    await ensureOffscreenDocument();
+    const res = await sendTypedMessage<any>('offscreen', 'GET_RECORDING_DATA', msg.payload);
+    if (!res.success) {
+      throw new MessageBusError(res.errorCode || 'E_INVALID_MESSAGE', res.error || 'Failed to get recording data');
+    }
+    return res.data;
+  },
+
+  DELETE_RECORDING_DATA: async (msg: any) => {
+    await ensureOffscreenDocument();
+    const res = await sendTypedMessage<any>('offscreen', 'DELETE_RECORDING_DATA', msg.payload);
+    return res.data;
   }
 });
 

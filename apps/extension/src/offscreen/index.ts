@@ -4,6 +4,7 @@
 import { registerMessageListener, sendTypedMessage, MessageBusError } from '../shared/message-bus.ts';
 import type { CaptureProfile, CaptureKind, AudioTrackMetadata } from '../shared/types.ts';
 import { getCodecCapabilityReport, selectBestCodec } from '../shared/codec-detector.ts';
+import { chunkStorage } from '../shared/chunk-storage.ts';
 
 console.log('[Capdio Offscreen] Host initializing...');
 
@@ -15,6 +16,8 @@ let activeSessionId: string | null = null;
 let activeNegotiatedMime: string | null = null;
 let activeIsFallback = false;
 let recordedChunks: Blob[] = [];
+let chunkSequenceNumber = 0;
+let recordingStartTimeMs = 0;
 
 // Modular Gain Nodes for Audio Graph Control (OCS-106)
 let monitorGainNode: GainNode | null = null;
@@ -71,7 +74,16 @@ async function startCaptureAndRecord(payload: {
 
   activeSessionId = sessionId;
   recordedChunks = [];
+  chunkSequenceNumber = 0;
+  recordingStartTimeMs = Date.now();
   lastFinalizedResult = null;
+
+  // Initialize IndexedDB storage schema
+  try {
+    await chunkStorage.init();
+  } catch (initErr) {
+    console.warn('[Offscreen] ChunkStorage init error:', initErr);
+  }
 
   let capturedStream: MediaStream;
   try {
@@ -233,6 +245,25 @@ async function startCaptureAndRecord(payload: {
 
     activeRecorder.ondataavailable = (event) => {
       if (event.data && event.data.size > 0) {
+        const seq = chunkSequenceNumber++;
+        const partId = `part_${seq}`;
+        const bytes = event.data.size;
+        const startMs = recordingStartTimeMs ? Math.max(0, Date.now() - recordingStartTimeMs) : 0;
+
+        // Persist chunk to IndexedDB
+        chunkStorage.persistChunk({
+          sessionId,
+          sequenceNumber: seq,
+          partId,
+          timestamp: Date.now(),
+          startMs,
+          bytes,
+          data: event.data
+        }).catch((err) => {
+          console.warn('[Capdio Offscreen] Failed to persist chunk to IndexedDB:', err);
+        });
+
+        // Bounded memory buffer: keep chunks for in-memory consolidation fallback
         recordedChunks.push(event.data);
       }
     };
@@ -324,9 +355,30 @@ async function stopCaptureAndRecord(requestedSessionId?: string) {
       cleanupAudioAndStreams();
 
       const mimeType = recorder?.mimeType || activeNegotiatedMime || 'video/webm';
-      const finalBlob = new Blob(recordedChunks, { type: mimeType });
-      const totalBytes = finalBlob.size;
-      const chunksCount = recordedChunks.length;
+      let finalBlob: Blob;
+      let totalBytes = 0;
+      let chunksCount = 0;
+
+      // Primary strategy: assemble and persist consolidated blob in IndexedDB (OCS-202)
+      try {
+        const storedCount = activeSessionId ? await chunkStorage.getChunkCount(activeSessionId) : 0;
+        if (storedCount > 0 && activeSessionId) {
+          const finalized = await chunkStorage.assembleAndSaveFinalized(activeSessionId, mimeType);
+          finalBlob = finalized.blob;
+          totalBytes = finalized.totalBytes;
+          chunksCount = storedCount;
+          console.log(`[Capdio Offscreen] Assembled & persisted recording to IndexedDB: ${totalBytes} bytes across ${chunksCount} chunks`);
+        } else {
+          finalBlob = new Blob(recordedChunks, { type: mimeType });
+          totalBytes = finalBlob.size;
+          chunksCount = recordedChunks.length;
+        }
+      } catch (err) {
+        console.warn('[Capdio Offscreen] IndexedDB assembly fallback to in-memory blob:', err);
+        finalBlob = new Blob(recordedChunks, { type: mimeType });
+        totalBytes = finalBlob.size;
+        chunksCount = recordedChunks.length;
+      }
 
       console.log(`[Capdio Offscreen] Finalized recording blob: ${totalBytes} bytes in ${chunksCount} chunks`);
 
@@ -413,7 +465,46 @@ registerMessageListener('offscreen', {
     activeRecorder = null;
     activeSessionId = null;
     recordedChunks = [];
+    chunkSequenceNumber = 0;
     cleanupAudioAndStreams();
+    return { success: true };
+  },
+
+  GET_RECORDING_DATA: async (msg: any) => {
+    const sessionId = msg.payload?.sessionId;
+    if (!sessionId) {
+      throw new MessageBusError('E_INVALID_MESSAGE', 'Missing sessionId for GET_RECORDING_DATA');
+    }
+    const finalized = await chunkStorage.getFinalizedRecording(sessionId);
+    if (!finalized) {
+      throw new MessageBusError('E_INVALID_MESSAGE', `No recording data found for session '${sessionId}'`);
+    }
+
+    const base64Data = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const dataUrl = (reader.result as string) || '';
+        const marker = ';base64,';
+        const idx = dataUrl.indexOf(marker);
+        resolve(idx !== -1 ? dataUrl.substring(idx + marker.length) : '');
+      };
+      reader.readAsDataURL(finalized.blob);
+    });
+
+    return {
+      sessionId,
+      mimeType: finalized.mimeType,
+      totalBytes: finalized.totalBytes,
+      durationMs: finalized.durationMs,
+      base64Data
+    };
+  },
+
+  DELETE_RECORDING_DATA: async (msg: any) => {
+    const sessionId = msg.payload?.sessionId;
+    if (sessionId) {
+      await chunkStorage.deleteSessionData(sessionId);
+    }
     return { success: true };
   },
 

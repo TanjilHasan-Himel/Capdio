@@ -234,6 +234,20 @@ export interface UpdateSessionMetadataMessage extends BaseMessage {
   };
 }
 
+export interface GetRecordingDataMessage extends BaseMessage {
+  action: 'GET_RECORDING_DATA';
+  payload: {
+    sessionId: string;
+  };
+}
+
+export interface DeleteRecordingDataMessage extends BaseMessage {
+  action: 'DELETE_RECORDING_DATA';
+  payload: {
+    sessionId: string;
+  };
+}
+
 export interface OffscreenStartMessage extends BaseMessage {
   target: 'offscreen';
   action: 'OFFSCREEN_START';
@@ -300,6 +314,8 @@ export type ExtensionMessage =
   | ListSessionsMessage
   | DeleteSessionMessage
   | UpdateSessionMetadataMessage
+  | GetRecordingDataMessage
+  | DeleteRecordingDataMessage
   | OffscreenStartMessage
   | OffscreenPauseMessage
   | OffscreenResumeMessage
