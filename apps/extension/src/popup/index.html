@@ -245,6 +245,25 @@
       font-family: monospace;
       margin-bottom: 8px;
     }
+
+    .library-link-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: #93c5fd;
+      padding: 3px 8px;
+      font-size: 11px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s ease;
+    }
+    .library-link-btn:hover {
+      background: #1e293b;
+      border-color: var(--accent);
+      color: #fff;
+    }
   </style>
 </head>
 <body>
@@ -253,9 +272,12 @@
       <h1>Capdio</h1>
       <p>Capture everything. Miss nothing.</p>
     </div>
-    <div class="status-badge" id="statusBadge">
-      <span class="status-dot"></span>
-      <span id="statusText">Ready</span>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <button id="openLibraryBtn" class="library-link-btn" title="Open Recordings Library">📁 Library</button>
+      <div class="status-badge" id="statusBadge">
+        <span class="status-dot"></span>
+        <span id="statusText">Ready</span>
+      </div>
     </div>
   </header>
 
@@ -346,6 +368,7 @@
         <div id="readyInfo" style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Ready for download</div>
       </div>
       <button id="downloadButton" class="primary-btn" style="background: #10b981; margin-bottom: 8px;">Download WebM</button>
+      <button id="viewInLibraryBtn" class="primary-btn" style="background: #3b82f6; margin-bottom: 8px;">View in Library</button>
       <button id="resetButton" class="primary-btn" style="background: var(--card); border: 1px solid var(--border);">New Recording</button>
     </div>
   </main>

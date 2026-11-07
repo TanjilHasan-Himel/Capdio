@@ -29,7 +29,8 @@ async function build() {
     entryPoints: {
       background: path.join(srcDir, 'background', 'index.ts'),
       offscreen: path.join(srcDir, 'offscreen', 'index.ts'),
-      popup: path.join(srcDir, 'popup', 'index.ts')
+      popup: path.join(srcDir, 'popup', 'index.ts'),
+      library: path.join(srcDir, 'library', 'index.ts')
     },
     outdir: distDir,
     bundle: true,
@@ -55,6 +56,11 @@ async function build() {
   fs.copyFileSync(
     path.join(srcDir, 'popup', 'index.html'),
     path.join(distDir, 'popup.html')
+  );
+
+  fs.copyFileSync(
+    path.join(srcDir, 'library', 'index.html'),
+    path.join(distDir, 'library.html')
   );
 
   const duration = Date.now() - startTime;

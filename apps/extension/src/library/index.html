@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Capdio — Recordings Library</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --card: #131b2e;
+      --card-hover: #18223a;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --danger: #ef4444;
+      --danger-hover: #dc2626;
+      --warning: #f59e0b;
+      --success: #10b981;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --border: #1e293b;
+      --border-focus: #3b82f6;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: #0d1322;
+      border-bottom: 1px solid var(--border);
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-logo {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 18px;
+      color: #fff;
+    }
+
+    .brand-text h1 {
+      font-size: 18px;
+      font-weight: 700;
+      color: #60a5fa;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-text p {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .badge-privacy {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      background: rgba(16, 185, 129, 0.1);
+      color: var(--success);
+      font-weight: 500;
+      border: 1px solid rgba(16, 185, 129, 0.2);
+    }
+
+    .container {
+      max-width: 1200px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 24px 32px;
+      flex: 1;
+    }
+
+    /* Filter & Controls Toolbar */
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      background: var(--card);
+      padding: 14px 18px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+
+    .search-box {
+      flex: 1;
+      min-width: 240px;
+      position: relative;
+    }
+
+    .search-box input {
+      width: 100%;
+      padding: 8px 14px;
+      border-radius: 6px;
+      background: #0b101c;
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+    }
+
+    .search-box input:focus {
+      border-color: var(--border-focus);
+    }
+
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    select {
+      padding: 8px 12px;
+      border-radius: 6px;
+      background: #0b101c;
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    select:focus {
+      border-color: var(--border-focus);
+    }
+
+    .stats-badge {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    /* Main Grid: List + Preview */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 24px;
+    }
+
+    @media (min-width: 900px) {
+      .main-grid.has-preview {
+        grid-template-columns: 1fr 420px;
+      }
+    }
+
+    /* Cards Grid */
+    .recordings-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 16px;
+    }
+
+    .recording-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: transform 0.15s ease, border-color 0.15s ease;
+    }
+
+    .recording-card:hover {
+      border-color: #2b3954;
+      background: var(--card-hover);
+    }
+
+    .recording-card.active-preview {
+      border-color: var(--accent);
+      background: #152038;
+    }
+
+    .card-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .card-title-group {
+      flex: 1;
+    }
+
+    .card-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.3;
+      margin-bottom: 4px;
+      word-break: break-word;
+    }
+
+    .card-date {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .format-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      background: #1e293b;
+      color: #93c5fd;
+    }
+
+    .format-badge.partial {
+      background: rgba(245, 158, 11, 0.2);
+      color: #fbbf24;
+    }
+
+    .card-metrics {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 12px;
+      color: var(--text-muted);
+      margin: 12px 0 16px 0;
+      padding: 8px 10px;
+      background: #0b101c;
+      border-radius: 6px;
+    }
+
+    .metric-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .metric-label {
+      color: #64748b;
+    }
+
+    .metric-value {
+      font-weight: 600;
+      color: #e2e8f0;
+      font-family: monospace;
+    }
+
+    .card-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    button {
+      border: none;
+      outline: none;
+      cursor: pointer;
+      font-weight: 600;
+      border-radius: 6px;
+      transition: background 0.15s ease;
+    }
+
+    .btn-preview {
+      background: var(--accent);
+      color: white;
+      padding: 7px 12px;
+      font-size: 12px;
+      flex: 1;
+    }
+
+    .btn-preview:hover {
+      background: var(--accent-hover);
+    }
+
+    .btn-download {
+      background: #10b981;
+      color: white;
+      padding: 7px 12px;
+      font-size: 12px;
+    }
+
+    .btn-download:hover {
+      background: #059669;
+    }
+
+    .btn-rename {
+      background: #1e293b;
+      color: #cbd5e1;
+      padding: 7px 10px;
+      font-size: 12px;
+    }
+
+    .btn-rename:hover {
+      background: #334155;
+    }
+
+    .btn-delete {
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+      padding: 7px 10px;
+      font-size: 12px;
+    }
+
+    .btn-delete:hover {
+      background: var(--danger);
+      color: white;
+    }
+
+    /* Preview Panel */
+    .preview-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      align-self: start;
+      position: sticky;
+      top: 24px;
+    }
+
+    .preview-panel.hidden {
+      display: none !important;
+    }
+
+    .preview-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .preview-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #60a5fa;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 320px;
+    }
+
+    .btn-close-preview {
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 16px;
+      padding: 2px 6px;
+    }
+
+    .btn-close-preview:hover {
+      color: white;
+    }
+
+    .video-container {
+      width: 100%;
+      background: #000;
+      border-radius: 6px;
+      overflow: hidden;
+      aspect-ratio: 16 / 9;
+      margin-bottom: 12px;
+    }
+
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .preview-details {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      line-height: 1.5;
+    }
+
+    .preview-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    /* Empty State */
+    .empty-state {
+      text-align: center;
+      padding: 64px 16px;
+      background: var(--card);
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      grid-column: 1 / -1;
+    }
+
+    .empty-icon {
+      font-size: 40px;
+      margin-bottom: 12px;
+    }
+
+    .empty-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .empty-subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    /* Rename Dialog / Modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    .modal-overlay.hidden {
+      display: none !important;
+    }
+
+    .modal-card {
+      background: #131b2e;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+      width: 90%;
+      max-width: 400px;
+    }
+
+    .modal-title {
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      color: var(--text);
+    }
+
+    .modal-input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 6px;
+      background: #0b101c;
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 13px;
+      margin-bottom: 16px;
+      outline: none;
+    }
+
+    .modal-input:focus {
+      border-color: var(--accent);
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .btn-secondary {
+      background: #1e293b;
+      color: #cbd5e1;
+      padding: 8px 14px;
+      font-size: 13px;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+      padding: 8px 14px;
+      font-size: 13px;
+    }
+
+    footer {
+      background: #0d1322;
+      border-top: 1px solid var(--border);
+      padding: 14px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand-group">
+      <div class="brand-logo">C</div>
+      <div class="brand-text">
+        <h1>Capdio — Recordings Library</h1>
+        <p>Capture everything. Miss nothing.</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <span class="badge-privacy">🔒 100% Offline & Private</span>
+    </div>
+  </header>
+
+  <div class="container">
+    <div class="toolbar">
+      <div class="search-box">
+        <input type="text" id="searchInput" placeholder="Search recordings by title or ID..." aria-label="Search recordings">
+      </div>
+      <div class="filter-group">
+        <select id="statusFilter" aria-label="Filter by status">
+          <option value="all">All Recordings</option>
+          <option value="ready">Ready (Complete)</option>
+          <option value="interrupted">Interrupted / Partial</option>
+        </select>
+        <select id="sortOrder" aria-label="Sort recordings">
+          <option value="newest" selected>Newest First</option>
+          <option value="oldest">Oldest First</option>
+          <option value="largest">Largest Size</option>
+        </select>
+        <span id="recordingCount" class="stats-badge">0 recordings</span>
+      </div>
+    </div>
+
+    <div id="mainGrid" class="main-grid">
+      <!-- Recordings Card List -->
+      <div id="recordingsList" class="recordings-grid">
+        <div class="empty-state">
+          <div class="empty-icon">📹</div>
+          <div class="empty-title">Loading recordings...</div>
+          <div class="empty-subtitle">Fetching your local recordings from offline storage.</div>
+        </div>
+      </div>
+
+      <!-- Persistent Video Player / Preview Panel -->
+      <div id="previewPanel" class="preview-panel hidden">
+        <div class="preview-header">
+          <span id="previewTitle" class="preview-title">Video Preview</span>
+          <button id="closePreviewBtn" class="btn-close-preview" aria-label="Close preview">&times;</button>
+        </div>
+        <div class="video-container">
+          <video id="videoPlayer" controls playsinline></video>
+        </div>
+        <div id="previewDetails" class="preview-details">-</div>
+        <div class="preview-actions">
+          <button id="previewDownloadBtn" class="btn-download" style="flex: 1;">Download Video</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rename Modal -->
+  <div id="renameModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="renameModalTitle">
+    <div class="modal-card">
+      <h2 id="renameModalTitle" class="modal-title">Rename Recording</h2>
+      <input type="text" id="renameInput" class="modal-input" placeholder="Enter new title..." maxlength="100">
+      <div class="modal-actions">
+        <button id="cancelRenameBtn" class="btn-secondary">Cancel</button>
+        <button id="saveRenameBtn" class="btn-primary">Save Title</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <span>Capdio MV3 Screen Recorder • Version 0.1.0</span>
+    <span>Zero cloud tracking. Origin-private IndexedDB & Storage.</span>
+  </footer>
+
+  <script type="module" src="library.js"></script>
+</body>
+</html>
+

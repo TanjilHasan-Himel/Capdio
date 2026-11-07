@@ -33,6 +33,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const stopButton = document.getElementById('stopButton') as HTMLButtonElement;
   const downloadButton = document.getElementById('downloadButton') as HTMLButtonElement;
   const resetButton = document.getElementById('resetButton') as HTMLButtonElement;
+  const openLibraryBtn = document.getElementById('openLibraryBtn') as HTMLButtonElement;
+  const viewInLibraryBtn = document.getElementById('viewInLibraryBtn') as HTMLButtonElement;
 
   const captureTarget = document.getElementById('captureTarget') as HTMLSelectElement;
   const qualityPreset = document.getElementById('qualityPreset') as HTMLSelectElement;
@@ -553,6 +555,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         discardRecoveryButton.disabled = false;
       }
     });
+  }
+
+  // Library Navigation (OCS-205)
+  function openLibraryPage() {
+    if (typeof chrome !== 'undefined' && chrome.tabs) {
+      chrome.tabs.create({ url: chrome.runtime.getURL('library.html') });
+    } else {
+      window.open('library.html', '_blank');
+    }
+  }
+
+  if (openLibraryBtn) {
+    openLibraryBtn.addEventListener('click', openLibraryPage);
+  }
+  if (viewInLibraryBtn) {
+    viewInLibraryBtn.addEventListener('click', openLibraryPage);
   }
 
   // Reset to New Recording
