@@ -209,8 +209,13 @@ export class RecordingStateMachine {
 
   /**
    * Helper: Reset state back to IDLE.
+   * If keepLastError is true, preserves the error code/message so UI can report what happened.
    */
-  public reset(): void {
+  public reset(keepLastError = false): void {
+    const prevErr = this._lastError;
     this.transitionTo('idle', 'FSM reset to idle');
+    if (keepLastError) {
+      this._lastError = prevErr;
+    }
   }
 }

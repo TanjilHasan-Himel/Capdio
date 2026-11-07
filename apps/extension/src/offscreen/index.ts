@@ -71,6 +71,7 @@ async function startCaptureAndRecord(payload: {
 
   activeSessionId = sessionId;
   recordedChunks = [];
+  lastFinalizedResult = null;
 
   let capturedStream: MediaStream;
   try {
@@ -140,7 +141,7 @@ async function startCaptureAndRecord(payload: {
     videoTracks[0]!.onended = async () => {
       console.log('[Capdio Offscreen] Video track ended by user/system, stopping capture...');
       try {
-        await sendTypedMessage('background', 'STOP_CAPTURE');
+        await sendTypedMessage('background', 'STOP_CAPTURE', { reason: 'track_ended' });
       } catch (stopErr) {
         console.warn('[Offscreen] auto-stop onended warning:', stopErr);
       }
@@ -263,72 +264,113 @@ async function startCaptureAndRecord(payload: {
   }
 }
 
-async function stopCaptureAndRecord() {
-  console.log('[Capdio Offscreen] Stopping capture and finalizing recording...');
+let inFlightStopPromise: Promise<any> | null = null;
+let lastFinalizedResult: any = null;
+
+async function stopCaptureAndRecord(requestedSessionId?: string) {
+  if (inFlightStopPromise) {
+    console.log('[Capdio Offscreen] stopCaptureAndRecord already in flight; awaiting existing promise');
+    return inFlightStopPromise;
+  }
+
+  const targetSessionId = activeSessionId || requestedSessionId || null;
+
   if (!activeRecorder || activeRecorder.state === 'inactive') {
+    if (
+      lastFinalizedResult &&
+      targetSessionId &&
+      lastFinalizedResult.sessionId === targetSessionId
+    ) {
+      console.log('[Capdio Offscreen] Returning previously finalized recording result for session:', targetSessionId);
+      return lastFinalizedResult;
+    }
     return {
-      sessionId: activeSessionId,
+      sessionId: targetSessionId,
       status: 'ready',
       totalBytes: 0,
       chunksCount: 0
     };
   }
 
-  const stopPromise = new Promise<void>((resolve) => {
-    if (!activeRecorder) return resolve();
-    activeRecorder.onstop = () => resolve();
-  });
+  inFlightStopPromise = (async () => {
+    try {
+      console.log('[Capdio Offscreen] Stopping capture and finalizing recording...');
+      const recorder = activeRecorder;
 
-  try {
-    activeRecorder.requestData();
-  } catch (err) {
-    console.warn('[Capdio Offscreen] requestData error before stop:', err);
-  }
+      const stopWait = new Promise<void>((resolve) => {
+        if (!recorder || recorder.state === 'inactive') return resolve();
+        recorder.onstop = () => resolve();
+      });
 
-  activeRecorder.stop();
-  await stopPromise;
+      try {
+        if (recorder.state === 'recording' || recorder.state === 'paused') {
+          recorder.requestData();
+        }
+      } catch (err) {
+        console.warn('[Capdio Offscreen] requestData error before stop:', err);
+      }
 
-  // Release all audio and media tracks cleanly (OCS-106)
-  cleanupAudioAndStreams();
+      try {
+        if (recorder.state !== 'inactive') {
+          recorder.stop();
+        }
+      } catch (err) {
+        console.warn('[Capdio Offscreen] recorder.stop error:', err);
+      }
 
-  const mimeType = activeRecorder?.mimeType || 'video/webm';
-  const finalBlob = new Blob(recordedChunks, { type: mimeType });
-  const totalBytes = finalBlob.size;
-  const chunksCount = recordedChunks.length;
+      await stopWait;
 
-  console.log(`[Capdio Offscreen] Finalized recording blob: ${totalBytes} bytes in ${chunksCount} chunks`);
+      // Release all audio and media tracks cleanly (OCS-106)
+      cleanupAudioAndStreams();
 
-  // Convert Blob to base64 for message transfer (robust against commas in mimeType like codecs=vp9,opus)
-  const base64Data = await new Promise<string>((resolve) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const dataUrl = (reader.result as string) || '';
-      const marker = ';base64,';
-      const markerIndex = dataUrl.indexOf(marker);
-      const base64 = markerIndex !== -1 ? dataUrl.substring(markerIndex + marker.length) : '';
-      resolve(base64);
-    };
-    reader.readAsDataURL(finalBlob);
-  });
+      const mimeType = recorder?.mimeType || activeNegotiatedMime || 'video/webm';
+      const finalBlob = new Blob(recordedChunks, { type: mimeType });
+      const totalBytes = finalBlob.size;
+      const chunksCount = recordedChunks.length;
 
-  const result = {
-    sessionId: activeSessionId,
-    status: 'ready',
-    totalBytes,
-    chunksCount,
-    mimeType: finalBlob.type,
-    negotiatedMimeType: activeNegotiatedMime || finalBlob.type,
-    isFallback: activeIsFallback,
-    base64Data
-  };
+      console.log(`[Capdio Offscreen] Finalized recording blob: ${totalBytes} bytes in ${chunksCount} chunks`);
 
-  activeRecorder = null;
-  activeSessionId = null;
-  activeNegotiatedMime = null;
-  activeIsFallback = false;
-  recordedChunks = [];
+      // Convert Blob to base64 for message transfer (robust against commas in mimeType like codecs=vp9,opus)
+      let base64Data = '';
+      if (totalBytes > 0) {
+        base64Data = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const dataUrl = (reader.result as string) || '';
+            const marker = ';base64,';
+            const markerIndex = dataUrl.indexOf(marker);
+            const base64 = markerIndex !== -1 ? dataUrl.substring(markerIndex + marker.length) : '';
+            resolve(base64);
+          };
+          reader.readAsDataURL(finalBlob);
+        });
+      }
 
-  return result;
+      const result = {
+        sessionId: activeSessionId,
+        status: 'ready',
+        totalBytes,
+        chunksCount,
+        mimeType: finalBlob.type,
+        negotiatedMimeType: activeNegotiatedMime || finalBlob.type,
+        isFallback: activeIsFallback,
+        base64Data
+      };
+
+      lastFinalizedResult = result;
+      activeRecorder = null;
+      activeSessionId = null;
+      activeNegotiatedMime = null;
+      activeIsFallback = false;
+      recordedChunks = [];
+
+      return result;
+    } finally {
+      inFlightStopPromise = null;
+    }
+  })();
+
+  return inFlightStopPromise;
 }
 
 registerMessageListener('offscreen', {
@@ -362,8 +404,17 @@ registerMessageListener('offscreen', {
     return { status: 'recording', sessionId: activeSessionId };
   },
 
-  OFFSCREEN_STOP: async () => {
-    return await stopCaptureAndRecord();
+  OFFSCREEN_STOP: async (msg: any) => {
+    return await stopCaptureAndRecord(msg.payload?.sessionId);
+  },
+
+  OFFSCREEN_RESET: async () => {
+    lastFinalizedResult = null;
+    activeRecorder = null;
+    activeSessionId = null;
+    recordedChunks = [];
+    cleanupAudioAndStreams();
+    return { success: true };
   },
 
   SET_AUDIO_MONITOR: async (msg: any) => {

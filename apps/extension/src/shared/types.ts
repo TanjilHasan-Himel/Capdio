@@ -190,6 +190,7 @@ export interface StopCaptureMessage extends BaseMessage {
   action: 'STOP_CAPTURE';
   payload?: {
     sessionId?: string;
+    reason?: 'user_stop' | 'source_tab_closed' | 'track_ended' | string;
   };
 }
 
@@ -233,6 +234,11 @@ export interface OffscreenStopMessage extends BaseMessage {
   };
 }
 
+export interface OffscreenResetMessage extends BaseMessage {
+  target: 'offscreen';
+  action: 'OFFSCREEN_RESET';
+}
+
 export interface SetAudioMonitorMessage extends BaseMessage {
   action: 'SET_AUDIO_MONITOR';
   payload?: {
@@ -266,6 +272,7 @@ export type ExtensionMessage =
   | OffscreenPauseMessage
   | OffscreenResumeMessage
   | OffscreenStopMessage
+  | OffscreenResetMessage
   | SetAudioMonitorMessage
   | SetMicMuteMessage
   | GetAudioStatusMessage;

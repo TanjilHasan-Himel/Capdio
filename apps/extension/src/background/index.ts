@@ -72,6 +72,11 @@ let recordingStartTime: number | null = null;
 let pausedStartTime: number | null = null;
 let totalPausedMs = 0;
 
+// Source Tracking & Intact Recording Persistence (OCS-108)
+let activeCapturedTabId: number | null = null;
+let lastRecordingResult: any = null;
+let lastTerminationReason: 'user_stop' | 'source_tab_closed' | 'track_ended' | null = null;
+
 export function getElapsedRecordingSeconds(): number {
   if (!recordingStartTime) return 0;
   const now = pausedStartTime || Date.now();
@@ -145,6 +150,85 @@ export async function closeOffscreenDocument(): Promise<void> {
   }
 }
 
+// Authoritative Stop & Safe Finalization (OCS-108)
+let inFlightStopPromise: Promise<any> | null = null;
+
+export async function executeStopCapture(reason = 'user_stop'): Promise<any> {
+  if (inFlightStopPromise) {
+    console.log(`[Capdio SW] executeStopCapture already in-flight (new reason: ${reason}); awaiting existing stop`);
+    return inFlightStopPromise;
+  }
+
+  if (stateMachine.isIdle() || stateMachine.currentStatus === 'ready') {
+    return {
+      status: stateMachine.currentStatus,
+      sessionId: stateMachine.activeSessionId,
+      recordingResult: lastRecordingResult,
+      lastTerminationReason
+    };
+  }
+
+  inFlightStopPromise = (async () => {
+    try {
+      const sessionId = stateMachine.activeSessionId;
+      stateMachine.stop();
+      recordingStartTime = null;
+      pausedStartTime = null;
+      totalPausedMs = 0;
+      activeCapturedTabId = null;
+      lastTerminationReason = reason as any;
+
+      let offscreenRes: any = null;
+      try {
+        offscreenRes = await sendTypedMessage<any>('offscreen', 'OFFSCREEN_STOP', { sessionId });
+      } catch (stopErr) {
+        console.warn('[Capdio SW] offscreen stop warning:', stopErr);
+      }
+
+      if (offscreenRes?.data) {
+        lastRecordingResult = offscreenRes.data;
+      }
+
+      if (sessionId) {
+        await sessionRegistry.updateSessionStatus(sessionId, 'finalizing');
+        if (offscreenRes?.data && offscreenRes.data.totalBytes > 0) {
+          await sessionRegistry.addSegment(sessionId, {
+            partId: 'part_001',
+            sourceId: 'tab',
+            startMs: 0,
+            bytes: offscreenRes.data.totalBytes || 0
+          });
+          stateMachine.markReady();
+          await sessionRegistry.updateSessionStatus(sessionId, 'ready');
+        } else {
+          if (reason === 'source_tab_closed' || reason === 'track_ended') {
+            stateMachine.markError('E_SOURCE_CLOSED', 'Captured source closed before recording data was produced');
+            await sessionRegistry.updateSessionStatus(sessionId, 'error', 'E_SOURCE_CLOSED');
+            stateMachine.reset(true);
+          } else {
+            stateMachine.markReady();
+            await sessionRegistry.updateSessionStatus(sessionId, 'ready');
+          }
+        }
+      } else {
+        stateMachine.markReady();
+      }
+
+      return {
+        status: stateMachine.currentStatus,
+        sessionId,
+        session: sessionId ? await sessionRegistry.getSession(sessionId) : null,
+        recordingResult: lastRecordingResult,
+        lastTerminationReason
+      };
+    } finally {
+      inFlightStopPromise = null;
+    }
+  })();
+
+  return inFlightStopPromise;
+}
+
 // Register typed message handlers for 'background' target
 registerMessageListener('background', {
   PING: async () => {
@@ -164,6 +248,8 @@ registerMessageListener('background', {
       activeSessionId: stateMachine.activeSessionId,
       activeSession: sessionRegistry.activeSession,
       lastError: stateMachine.lastError,
+      lastRecordingResult,
+      lastTerminationReason,
       timing: {
         recordingStartTime,
         isPaused: stateMachine.isPaused(),
@@ -213,7 +299,11 @@ registerMessageListener('background', {
       if (targetKind === 'tab') {
         targetTabId = await resolveTargetTabId(msg.payload?.targetTabId);
         streamId = msg.payload?.streamId || (await getTabMediaStreamId(targetTabId));
+        activeCapturedTabId = targetTabId ?? null;
+      } else {
+        activeCapturedTabId = null;
       }
+      lastTerminationReason = null;
 
       // Ensure Offscreen Host exists with USER_MEDIA and DISPLAY_MEDIA
       await ensureOffscreenDocument();
@@ -259,8 +349,8 @@ registerMessageListener('background', {
       const code = typeof err.code === 'string' ? err.code : 'E_CAPTURE_DENIED';
       stateMachine.markError(code, err.message);
       await sessionRegistry.updateSessionStatus(session.sessionId, 'error', code);
-      // Reset state machine back to idle so user can retry immediately after denial/cancellation
-      stateMachine.reset();
+      // Reset state machine back to idle while preserving lastError for UI notice
+      stateMachine.reset(true);
       throw new MessageBusError(code, err.message);
     }
   },
@@ -327,48 +417,8 @@ registerMessageListener('background', {
   },
 
   STOP_CAPTURE: async (msg: StopCaptureMessage) => {
-    if (stateMachine.isIdle() || stateMachine.currentStatus === 'ready') {
-      return {
-        status: stateMachine.currentStatus,
-        sessionId: stateMachine.activeSessionId
-      };
-    }
-
-    const sessionId = stateMachine.activeSessionId || msg.payload?.sessionId;
-    stateMachine.stop();
-    recordingStartTime = null;
-    pausedStartTime = null;
-    totalPausedMs = 0;
-
-    let offscreenRes: any = null;
-    try {
-      offscreenRes = await sendTypedMessage<any>('offscreen', 'OFFSCREEN_STOP');
-    } catch (stopErr) {
-      console.warn('[Capdio SW] offscreen stop warning:', stopErr);
-    }
-
-    if (sessionId) {
-      await sessionRegistry.updateSessionStatus(sessionId, 'finalizing');
-      if (offscreenRes?.data) {
-        await sessionRegistry.addSegment(sessionId, {
-          partId: 'part_001',
-          sourceId: 'tab',
-          startMs: 0,
-          bytes: offscreenRes.data.totalBytes || 0
-        });
-      }
-      stateMachine.markReady();
-      await sessionRegistry.updateSessionStatus(sessionId, 'ready');
-    } else {
-      stateMachine.markReady();
-    }
-
-    return {
-      status: stateMachine.currentStatus,
-      sessionId,
-      session: sessionId ? await sessionRegistry.getSession(sessionId) : null,
-      recordingResult: offscreenRes?.data
-    };
+    const reason = (msg.payload as any)?.reason || 'user_stop';
+    return await executeStopCapture(reason);
   },
 
   RESET_CAPTURE: async () => {
@@ -377,6 +427,12 @@ registerMessageListener('background', {
     recordingStartTime = null;
     pausedStartTime = null;
     totalPausedMs = 0;
+    activeCapturedTabId = null;
+    lastRecordingResult = null;
+    lastTerminationReason = null;
+    try {
+      await sendTypedMessage('offscreen', 'OFFSCREEN_RESET');
+    } catch (_) {}
     return {
       status: stateMachine.currentStatus
     };
@@ -453,11 +509,28 @@ chrome.runtime.onStartup.addListener(() => {
   updateActionBadge('idle');
 });
 
+// Detect captured tab closure and finalize safely (OCS-108)
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  if (activeCapturedTabId === tabId && stateMachine.isActive()) {
+    console.log(`[Capdio SW] Captured target tab ${tabId} closed by user. Finalizing intact capture.`);
+    activeCapturedTabId = null;
+    try {
+      await executeStopCapture('source_tab_closed');
+    } catch (err) {
+      console.warn('[Capdio SW] Error stopping capture on tab closure:', err);
+    }
+  }
+});
+
 console.log('[Capdio SW] Service Worker & FSM Coordinator initialized successfully');
 
 // Expose coordinator diagnostics for test harness and service worker inspection
 (self as any).__capdio = {
   stateMachine,
   sessionRegistry,
-  getElapsedRecordingSeconds
+  getElapsedRecordingSeconds,
+  getActiveCapturedTabId: () => activeCapturedTabId,
+  getLastRecordingResult: () => lastRecordingResult,
+  getLastTerminationReason: () => lastTerminationReason,
+  executeStopCapture
 };

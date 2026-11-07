@@ -129,7 +129,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // Fetch initial status on load (OCS-107: State & Timer Rehydration)
+  // Fetch initial status on load (OCS-107: State & Timer Rehydration, OCS-108: Result Rehydration)
   try {
     const statusRes = await sendTypedMessage<any>('background', 'GET_STATUS');
     console.log('[Capdio Popup] Initial status response:', statusRes);
@@ -138,6 +138,51 @@ document.addEventListener('DOMContentLoaded', async () => {
         elapsedSeconds = statusRes.data.timing.elapsedSeconds;
         updateTimerDisplay();
       }
+
+      // Rehydrate completed recording if status is ready (OCS-108)
+      if (statusRes.data.status === 'ready' && statusRes.data.lastRecordingResult) {
+        const recResult = statusRes.data.lastRecordingResult;
+        if (recResult.base64Data) {
+          lastRecordingBase64 = recResult.base64Data;
+          lastRecordingMimeType = recResult.mimeType || recResult.negotiatedMimeType || 'video/webm';
+          lastRecordingIsFallback = !!recResult.isFallback;
+          (window as any).__lastRecordingBase64 = recResult.base64Data;
+          (window as any).__lastResult = statusRes.data;
+
+          const isMp4 = lastRecordingMimeType.includes('mp4');
+          if (downloadButton) {
+            downloadButton.textContent = isMp4 ? 'Download MP4' : 'Download WebM';
+          }
+
+          if (readyInfo) {
+            const mb = (recResult.totalBytes / (1024 * 1024)).toFixed(2);
+            let detail = `Size: ${mb} MB (${recResult.chunksCount} chunks) • ${isMp4 ? 'MP4' : 'WebM'}`;
+            if (lastRecordingIsFallback) {
+              detail += ' (fallback from MP4)';
+            }
+            readyInfo.textContent = detail;
+          }
+        }
+      }
+
+      // Surface termination notice if source closed or capture ended externally (OCS-108)
+      if (statusRes.data.lastTerminationReason === 'source_tab_closed') {
+        showNotice(
+          'Captured Tab Closed',
+          'The captured browser tab was closed. Your recording was safely saved up to that moment and is ready to download.'
+        );
+      } else if (statusRes.data.lastTerminationReason === 'track_ended') {
+        showNotice(
+          'Capture Ended',
+          'Screen or window sharing was ended. Your recording was safely saved and is ready to download.'
+        );
+      } else if (statusRes.data.lastError?.code === 'E_SOURCE_CLOSED') {
+        showNotice(
+          'Source Closed',
+          statusRes.data.lastError.message || 'Captured source was closed before recording data was produced.'
+        );
+      }
+
       renderState(statusRes.data.status, statusRes.data.activeSessionId);
       if (statusRes.data.status === 'recording') {
         startTimer(false);
@@ -367,6 +412,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Reset to New Recording
   if (resetButton) {
     resetButton.addEventListener('click', async () => {
+      hideNotice();
       await sendTypedMessage('background', 'RESET_CAPTURE');
       lastRecordingBase64 = null;
       renderState('idle');

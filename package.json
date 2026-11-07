@@ -13,6 +13,7 @@
     "test:codec": "node test-harness/test-codec-fallback.js",
     "test:audio": "node test-harness/test-audio-routing.js",
     "test:controls": "node test-harness/test-recording-controls.js",
+    "test:source-closure": "node test-harness/test-source-closure.js",
     "test:smoke": "node test-harness/test-apps-extension-smoke.js",
     "test:tab-capture": "node test-harness/test-apps-tab-capture.js",
     "test:screen-capture": "node test-harness/test-apps-screen-capture.js",
