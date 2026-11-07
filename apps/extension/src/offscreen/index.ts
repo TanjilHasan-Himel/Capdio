@@ -2,7 +2,12 @@
 // Capdio Offscreen Document - Media Sandbox & Recorder Host (OCS-102 - OCS-106)
 
 import { registerMessageListener, sendTypedMessage, MessageBusError } from '../shared/message-bus.ts';
-import type { CaptureProfile, CaptureKind, AudioTrackMetadata } from '../shared/types.ts';
+import {
+  calculateAudioLevels,
+  type CaptureProfile,
+  type CaptureKind,
+  type AudioTrackMetadata
+} from '../shared/types.ts';
 import { getCodecCapabilityReport, selectBestCodec } from '../shared/codec-detector.ts';
 import { chunkStorage } from '../shared/chunk-storage.ts';
 import { quotaMonitor } from '../shared/quota-monitor.ts';
@@ -21,10 +26,11 @@ let recordedChunks: Blob[] = [];
 let chunkSequenceNumber = 0;
 let recordingStartTimeMs = 0;
 
-// Modular Gain Nodes for Audio Graph Control (OCS-106)
+// Modular Gain Nodes & Analyser for Audio Graph Control (OCS-106 & OCS-302)
 let monitorGainNode: GainNode | null = null;
 let tabRecordGainNode: GainNode | null = null;
 let micRecordGainNode: GainNode | null = null;
+let audioAnalyserNode: AnalyserNode | null = null;
 
 function cleanupAudioAndStreams() {
   if (activeMicStream) {
@@ -54,6 +60,7 @@ function cleanupAudioAndStreams() {
   monitorGainNode = null;
   tabRecordGainNode = null;
   micRecordGainNode = null;
+  audioAnalyserNode = null;
   activeVideoSettings = null;
 }
 
@@ -192,13 +199,25 @@ async function startCaptureAndRecord(payload: {
 
       if (profile.microphone) {
         try {
-          activeMicStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true
-            }
-          });
+          const hasSpecificDevice = !!(profile.micDeviceId && profile.micDeviceId !== 'default' && profile.micDeviceId.trim() !== '');
+          const micConstraints: MediaTrackConstraints = {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            ...(hasSpecificDevice ? { deviceId: { ideal: profile.micDeviceId } } : {})
+          };
+          try {
+            activeMicStream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints });
+          } catch (specificErr) {
+            console.warn('[Offscreen] Specific mic device request failed, falling back to default mic:', specificErr);
+            activeMicStream = await navigator.mediaDevices.getUserMedia({
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+              }
+            });
+          }
           const micSource = activeAudioContext.createMediaStreamSource(activeMicStream);
           micRecordGainNode = activeAudioContext.createGain();
           micRecordGainNode.gain.value = 1.0;
@@ -206,10 +225,24 @@ async function startCaptureAndRecord(payload: {
           // CRITICAL: Connect ONLY to recording mixedDestination, NEVER to activeAudioContext.destination
           micRecordGainNode.connect(mixedDestination);
           hasMicrophone = true;
-          console.log('[Capdio Offscreen] Microphone connected exclusively to recording mixer');
+          console.log('[Capdio Offscreen] Microphone connected exclusively to recording mixer, device:', profile.micDeviceId || 'default');
         } catch (micErr: any) {
           console.warn('[Offscreen] Optional microphone access failed, proceeding without mic:', micErr);
         }
+      }
+
+      // Connect AnalyserNode for Real-Time Audio Health VU-Meter (OCS-302)
+      try {
+        audioAnalyserNode = activeAudioContext.createAnalyser();
+        audioAnalyserNode.fftSize = 256;
+        if (tabRecordGainNode) {
+          tabRecordGainNode.connect(audioAnalyserNode);
+        }
+        if (micRecordGainNode) {
+          micRecordGainNode.connect(audioAnalyserNode);
+        }
+      } catch (analyserErr) {
+        console.warn('[Offscreen] Audio analyser setup warning:', analyserErr);
       }
 
       const mixedTracks = mixedDestination.stream.getAudioTracks();
@@ -221,6 +254,8 @@ async function startCaptureAndRecord(payload: {
     const audioMetadata: AudioTrackMetadata = {
       hasTabAudio: sourceAudioTracks.length > 0,
       hasMicrophone,
+      micDeviceId: profile.micDeviceId,
+      micDeviceLabel: activeMicStream?.getAudioTracks()[0]?.label,
       sampleRate: finalAudioTrack?.getSettings()?.sampleRate,
       channelCount: finalAudioTrack?.getSettings()?.channelCount,
       echoCancellation: finalAudioTrack?.getSettings()?.echoCancellation
@@ -612,11 +647,39 @@ registerMessageListener('offscreen', {
     return { micMuted: false };
   },
 
+  ENUMERATE_AUDIO_DEVICES: async () => {
+    if (typeof navigator.mediaDevices === 'undefined' || !navigator.mediaDevices.enumerateDevices) {
+      return { devices: [] };
+    }
+    try {
+      const allDevices = await navigator.mediaDevices.enumerateDevices();
+      const audioInputs = allDevices
+        .filter(d => d.kind === 'audioinput')
+        .map(d => ({
+          deviceId: d.deviceId,
+          label: d.label || `Microphone ${d.deviceId.slice(0, 5)}`,
+          groupId: d.groupId
+        }));
+      return { devices: audioInputs };
+    } catch (err: any) {
+      console.warn('[Offscreen] enumerateDevices error:', err);
+      return { devices: [] };
+    }
+  },
+
   GET_AUDIO_STATUS: async () => {
+    let levels = { rmsLevel: 0, peakDb: -100, isClipping: false };
+    if (audioAnalyserNode) {
+      const timeDomainBuffer = new Float32Array(audioAnalyserNode.fftSize);
+      audioAnalyserNode.getFloatTimeDomainData(timeDomainBuffer);
+      levels = calculateAudioLevels(timeDomainBuffer);
+    }
     return {
       hasAudioContext: !!activeAudioContext,
       hasMicStream: !!activeMicStream,
-      monitorActive: !!monitorGainNode && monitorGainNode.gain.value > 0
+      monitorActive: !!monitorGainNode && monitorGainNode.gain.value > 0,
+      micMuted: !!micRecordGainNode && micRecordGainNode.gain.value === 0,
+      ...levels
     };
   }
 });

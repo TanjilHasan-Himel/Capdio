@@ -509,6 +509,12 @@ registerMessageListener('background', {
     return res.data;
   },
 
+  ENUMERATE_AUDIO_DEVICES: async () => {
+    await ensureOffscreenDocument();
+    const res = await sendTypedMessage<any>('offscreen', 'ENUMERATE_AUDIO_DEVICES');
+    return res.data || { devices: [] };
+  },
+
   GET_AUDIO_STATUS: async () => {
     await ensureOffscreenDocument();
     const res = await sendTypedMessage<any>('offscreen', 'GET_AUDIO_STATUS');

@@ -45,6 +45,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const mp4Option = document.getElementById('mp4Option') as HTMLOptionElement;
   const tabAudioToggle = document.getElementById('tabAudioToggle') as HTMLInputElement;
   const micToggle = document.getElementById('micToggle') as HTMLInputElement;
+  const micDeviceGroup = document.getElementById('micDeviceGroup');
+  const micSelect = document.getElementById('micSelect') as HTMLSelectElement;
+  const audioMeterBar = document.getElementById('audioMeterBar');
+  const audioLevelText = document.getElementById('audioLevelText');
 
   let currentStatus: RecordStatus = 'idle';
   let activeSessionId: string | null = null;
@@ -133,6 +137,50 @@ document.addEventListener('DOMContentLoaded', async () => {
     return detail;
   }
 
+  async function updateMicDeviceList() {
+    if (!micToggle?.checked) {
+      micDeviceGroup?.classList.add('hidden');
+      return;
+    }
+    micDeviceGroup?.classList.remove('hidden');
+    try {
+      const res = await sendTypedMessage<any>('background', 'ENUMERATE_AUDIO_DEVICES');
+      if (res.success && Array.isArray(res.data?.devices) && res.data.devices.length > 0 && micSelect) {
+        micSelect.innerHTML = '<option value="default">Default System Microphone</option>';
+        res.data.devices.forEach((d: any) => {
+          const opt = document.createElement('option');
+          opt.value = d.deviceId;
+          opt.textContent = d.label || `Microphone ${d.deviceId.slice(0, 5)}`;
+          micSelect.appendChild(opt);
+        });
+      }
+    } catch (err) {
+      console.warn('[Capdio Popup] Failed to enumerate audio devices:', err);
+    }
+  }
+
+  if (micToggle) {
+    micToggle.addEventListener('change', updateMicDeviceList);
+  }
+
+  async function updateAudioHealthMeter() {
+    if (currentStatus !== 'recording') return;
+    try {
+      const audioRes = await sendTypedMessage<any>('background', 'GET_AUDIO_STATUS');
+      if (audioRes.success && audioRes.data) {
+        const { rmsLevel = 0, peakDb = -100, isClipping = false } = audioRes.data;
+        if (audioMeterBar) {
+          const pct = Math.min(100, Math.round(rmsLevel * 100));
+          audioMeterBar.style.width = `${pct}%`;
+          audioMeterBar.style.backgroundColor = isClipping ? '#ef4444' : (peakDb > -6 ? '#f59e0b' : '#10b981');
+        }
+        if (audioLevelText) {
+          audioLevelText.textContent = peakDb <= -60 ? '-inf dB' : `${peakDb} dB`;
+        }
+      }
+    } catch (_) {}
+  }
+
   async function checkRecoverableSessions() {
     if (currentStatus !== 'idle') {
       recoveryCenter?.classList.add('hidden');
@@ -193,6 +241,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (currentStatus === 'recording') {
         elapsedSeconds++;
         updateTimerDisplay();
+        updateAudioHealthMeter();
 
         // Sync with background state for external events (low-storage auto-stop, tab closure)
         if (elapsedSeconds % 2 === 0) {
@@ -236,6 +285,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function stopTimer() {
     clearInterval(timerInterval);
+    if (audioMeterBar) audioMeterBar.style.width = '0%';
+    if (audioLevelText) audioLevelText.textContent = '-inf dB';
   }
 
   function renderState(status: RecordStatus, sessionId?: string | null) {
@@ -392,7 +443,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         videoBitrate: preset.videoBitrate,
         mimePreference: formatPref,
         tabAudio: tabAudioToggle?.checked ?? true,
-        microphone: micToggle?.checked ?? false
+        microphone: micToggle?.checked ?? false,
+        micDeviceId: micSelect?.value || 'default'
       };
 
       const selectedKind = captureTarget?.value || 'tab';

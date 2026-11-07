@@ -120,14 +120,59 @@ export interface CaptureProfile {
   videoBitrate?: number;
   tabAudio: boolean;
   microphone: boolean;
+  micDeviceId?: string;
 }
 
 export interface AudioTrackMetadata {
   hasTabAudio: boolean;
   hasMicrophone: boolean;
+  micDeviceId?: string;
+  micDeviceLabel?: string;
   sampleRate?: number;
   channelCount?: number;
   echoCancellation?: boolean | string;
+}
+
+export interface AudioInputDevice {
+  deviceId: string;
+  label: string;
+  groupId?: string;
+}
+
+export interface AudioHealthReport {
+  hasAudioContext: boolean;
+  hasMicStream: boolean;
+  monitorActive: boolean;
+  micMuted: boolean;
+  rmsLevel: number;
+  peakDb: number;
+  isClipping: boolean;
+}
+
+export function calculateAudioLevels(timeDomainData: Float32Array): {
+  rmsLevel: number;
+  peakDb: number;
+  isClipping: boolean;
+} {
+  let sumSquares = 0;
+  let peak = 0;
+  const len = timeDomainData.length;
+  for (let i = 0; i < len; i++) {
+    const val = timeDomainData[i]!;
+    const abs = Math.abs(val);
+    if (abs > peak) peak = abs;
+    sumSquares += val * val;
+  }
+  const rms = Math.sqrt(sumSquares / (len || 1));
+  const rmsLevel = Math.min(1.0, Math.max(0.0, rms * 2.5));
+  const peakDb = peak > 0.0001 ? Math.max(-60, 20 * Math.log10(peak)) : -100;
+  const isClipping = peak >= 0.98;
+
+  return {
+    rmsLevel: parseFloat(rmsLevel.toFixed(3)),
+    peakDb: parseFloat(peakDb.toFixed(1)),
+    isClipping
+  };
 }
 
 export interface SourceInfo {
@@ -387,6 +432,10 @@ export interface GetAudioStatusMessage extends BaseMessage {
   action: 'GET_AUDIO_STATUS';
 }
 
+export interface EnumerateAudioDevicesMessage extends BaseMessage {
+  action: 'ENUMERATE_AUDIO_DEVICES';
+}
+
 export type ExtensionMessage =
   | PingMessage
   | ProbeCapabilitiesMessage
@@ -415,7 +464,8 @@ export type ExtensionMessage =
   | OffscreenResetMessage
   | SetAudioMonitorMessage
   | SetMicMuteMessage
-  | GetAudioStatusMessage;
+  | GetAudioStatusMessage
+  | EnumerateAudioDevicesMessage;
 
 export interface MessageResponse<T = unknown> {
   success: boolean;

@@ -352,6 +352,12 @@
           <span>Microphone</span>
           <input type="checkbox" id="micToggle">
         </div>
+        <div id="micDeviceGroup" class="hidden" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border);">
+          <label for="micSelect" style="font-size: 11px; margin-bottom: 4px; display: block;">Microphone Device</label>
+          <select id="micSelect" style="font-size: 11px; padding: 6px 8px; width: 100%;">
+            <option value="default">Default System Microphone</option>
+          </select>
+        </div>
       </div>
 
       <button id="recordButton" class="primary-btn">Start Recording</button>
@@ -368,6 +374,15 @@
           <span id="liveQualityBadge" style="font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #1e293b; color: #60a5fa; font-family: monospace;">-</span>
         </div>
         <div id="activeSessionInfo" style="font-size: 11px; color: var(--text-muted); word-break: break-all;">-</div>
+      </div>
+      <div id="audioHealthSection" class="control-group">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <label style="margin: 0; font-size: 11px;">Audio Health Level</label>
+          <span id="audioLevelText" style="font-size: 10px; color: var(--text-muted); font-family: monospace;">-inf dB</span>
+        </div>
+        <div style="width: 100%; height: 8px; background: #0b101c; border-radius: 4px; overflow: hidden; border: 1px solid var(--border);">
+          <div id="audioMeterBar" style="width: 0%; height: 100%; background: #10b981; border-radius: 4px; transition: width 0.08s ease, background-color 0.15s ease;"></div>
+        </div>
       </div>
       <div class="btn-row">
         <button id="pauseResumeButton" class="warning-btn">Pause</button>
