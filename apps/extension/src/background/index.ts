@@ -20,7 +20,7 @@ const OFFSCREEN_PATH = 'offscreen.html';
 export const stateMachine = new RecordingStateMachine();
 export const sessionRegistry = new SessionRegistry();
 
-// Action Badge Synchronization
+// Action Badge Synchronization & Tooltip (OCS-107)
 function updateActionBadge(status: RecordStatus): void {
   try {
     if (!chrome.action) return;
@@ -29,33 +29,54 @@ function updateActionBadge(status: RecordStatus): void {
       case 'recording':
         chrome.action.setBadgeText({ text: 'REC' });
         chrome.action.setBadgeBackgroundColor({ color: '#ef4444' }); // Red
+        chrome.action.setTitle({ title: 'Capdio: Recording in progress — Click to open controls' });
         break;
       case 'paused':
         chrome.action.setBadgeText({ text: 'PAUS' });
         chrome.action.setBadgeBackgroundColor({ color: '#f59e0b' }); // Amber
+        chrome.action.setTitle({ title: 'Capdio: Recording paused — Click to resume or stop' });
         break;
       case 'requesting_permission':
       case 'preparing':
         chrome.action.setBadgeText({ text: '...' });
         chrome.action.setBadgeBackgroundColor({ color: '#3b82f6' }); // Blue
+        chrome.action.setTitle({ title: 'Capdio: Preparing capture...' });
         break;
       case 'finalizing':
         chrome.action.setBadgeText({ text: 'FIN' });
         chrome.action.setBadgeBackgroundColor({ color: '#8b5cf6' }); // Purple
+        chrome.action.setTitle({ title: 'Capdio: Finalizing recording...' });
         break;
       case 'error':
         chrome.action.setBadgeText({ text: 'ERR' });
         chrome.action.setBadgeBackgroundColor({ color: '#dc2626' }); // Dark Red
+        chrome.action.setTitle({ title: 'Capdio: Recording error' });
         break;
       case 'ready':
+        chrome.action.setBadgeText({ text: '' });
+        chrome.action.setTitle({ title: 'Capdio: Recording complete — Ready to save' });
+        break;
       case 'idle':
       default:
         chrome.action.setBadgeText({ text: '' });
+        chrome.action.setTitle({ title: 'Capdio — Screen Recorder' });
         break;
     }
   } catch (err) {
     console.warn('[Capdio SW] Could not update action badge:', err);
   }
+}
+
+// Authoritative Session Timing (OCS-107)
+let recordingStartTime: number | null = null;
+let pausedStartTime: number | null = null;
+let totalPausedMs = 0;
+
+export function getElapsedRecordingSeconds(): number {
+  if (!recordingStartTime) return 0;
+  const now = pausedStartTime || Date.now();
+  const elapsedMs = Math.max(0, now - recordingStartTime - totalPausedMs);
+  return Math.floor(elapsedMs / 1000);
 }
 
 // Subscribe badge updater to FSM transitions
@@ -142,7 +163,12 @@ registerMessageListener('background', {
       status: stateMachine.currentStatus,
       activeSessionId: stateMachine.activeSessionId,
       activeSession: sessionRegistry.activeSession,
-      lastError: stateMachine.lastError
+      lastError: stateMachine.lastError,
+      timing: {
+        recordingStartTime,
+        isPaused: stateMachine.isPaused(),
+        elapsedSeconds: getElapsedRecordingSeconds()
+      }
     };
   },
 
@@ -208,6 +234,9 @@ registerMessageListener('background', {
       }
 
       stateMachine.markRecording();
+      recordingStartTime = Date.now();
+      pausedStartTime = null;
+      totalPausedMs = 0;
       await sessionRegistry.updateSessionStatus(session.sessionId, 'recording');
       await sessionRegistry.addSource(session.sessionId, {
         sourceId: streamId ? streamId.substring(0, 12) : `${targetKind}_${Date.now()}`,
@@ -248,6 +277,7 @@ registerMessageListener('background', {
     }
 
     stateMachine.pause();
+    pausedStartTime = Date.now();
     await sendTypedMessage('offscreen', 'OFFSCREEN_PAUSE');
     if (stateMachine.activeSessionId) {
       await sessionRegistry.updateSessionStatus(stateMachine.activeSessionId, 'paused');
@@ -255,7 +285,12 @@ registerMessageListener('background', {
 
     return {
       status: stateMachine.currentStatus,
-      sessionId: stateMachine.activeSessionId
+      sessionId: stateMachine.activeSessionId,
+      timing: {
+        recordingStartTime,
+        isPaused: true,
+        elapsedSeconds: getElapsedRecordingSeconds()
+      }
     };
   },
 
@@ -271,6 +306,10 @@ registerMessageListener('background', {
     }
 
     stateMachine.resume();
+    if (pausedStartTime) {
+      totalPausedMs += Date.now() - pausedStartTime;
+      pausedStartTime = null;
+    }
     await sendTypedMessage('offscreen', 'OFFSCREEN_RESUME');
     if (stateMachine.activeSessionId) {
       await sessionRegistry.updateSessionStatus(stateMachine.activeSessionId, 'recording');
@@ -278,7 +317,12 @@ registerMessageListener('background', {
 
     return {
       status: stateMachine.currentStatus,
-      sessionId: stateMachine.activeSessionId
+      sessionId: stateMachine.activeSessionId,
+      timing: {
+        recordingStartTime,
+        isPaused: false,
+        elapsedSeconds: getElapsedRecordingSeconds()
+      }
     };
   },
 
@@ -292,6 +336,9 @@ registerMessageListener('background', {
 
     const sessionId = stateMachine.activeSessionId || msg.payload?.sessionId;
     stateMachine.stop();
+    recordingStartTime = null;
+    pausedStartTime = null;
+    totalPausedMs = 0;
 
     let offscreenRes: any = null;
     try {
@@ -327,6 +374,9 @@ registerMessageListener('background', {
   RESET_CAPTURE: async () => {
     stateMachine.reset();
     sessionRegistry.clearActiveSession();
+    recordingStartTime = null;
+    pausedStartTime = null;
+    totalPausedMs = 0;
     return {
       status: stateMachine.currentStatus
     };
@@ -404,3 +454,10 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 console.log('[Capdio SW] Service Worker & FSM Coordinator initialized successfully');
+
+// Expose coordinator diagnostics for test harness and service worker inspection
+(self as any).__capdio = {
+  stateMachine,
+  sessionRegistry,
+  getElapsedRecordingSeconds
+};

@@ -67,9 +67,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     recordingTimer.textContent = `${mins}:${secs}`;
   }
 
-  function startTimer() {
+  function startTimer(reset = true) {
     clearInterval(timerInterval);
-    elapsedSeconds = 0;
+    if (reset) {
+      elapsedSeconds = 0;
+    }
     updateTimerDisplay();
     timerInterval = setInterval(() => {
       if (currentStatus === 'recording') {
@@ -116,10 +118,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       activeSection?.classList.remove('hidden');
       readySection?.classList.add('hidden');
 
-      if (status === 'recording' && !timerInterval) {
-        startTimer();
-      }
-
       if (pauseResumeButton) {
         pauseResumeButton.textContent = status === 'paused' ? 'Resume' : 'Pause';
       }
@@ -131,12 +129,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // Fetch initial status on load
+  // Fetch initial status on load (OCS-107: State & Timer Rehydration)
   try {
     const statusRes = await sendTypedMessage<any>('background', 'GET_STATUS');
     console.log('[Capdio Popup] Initial status response:', statusRes);
     if (statusRes.success && statusRes.data) {
+      if (typeof statusRes.data.timing?.elapsedSeconds === 'number') {
+        elapsedSeconds = statusRes.data.timing.elapsedSeconds;
+        updateTimerDisplay();
+      }
       renderState(statusRes.data.status, statusRes.data.activeSessionId);
+      if (statusRes.data.status === 'recording') {
+        startTimer(false);
+      }
     }
   } catch (err) {
     console.error('[Capdio Popup] Failed to get initial status:', err);
@@ -254,23 +259,37 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // Pause / Resume
+  // Pause / Resume (OCS-107)
   if (pauseResumeButton) {
     pauseResumeButton.addEventListener('click', async () => {
-      if (currentStatus === 'paused') {
-        const res = await sendTypedMessage<any>('background', 'RESUME_CAPTURE', {
-          sessionId: activeSessionId
-        });
-        if (res.success && res.data) {
-          renderState(res.data.status, activeSessionId);
+      pauseResumeButton.disabled = true;
+      try {
+        if (currentStatus === 'paused') {
+          const res = await sendTypedMessage<any>('background', 'RESUME_CAPTURE', {
+            sessionId: activeSessionId
+          });
+          if (res.success && res.data) {
+            if (typeof res.data.timing?.elapsedSeconds === 'number') {
+              elapsedSeconds = res.data.timing.elapsedSeconds;
+            }
+            renderState(res.data.status, activeSessionId);
+            startTimer(false);
+          }
+        } else if (currentStatus === 'recording') {
+          const res = await sendTypedMessage<any>('background', 'PAUSE_CAPTURE', {
+            sessionId: activeSessionId
+          });
+          if (res.success && res.data) {
+            if (typeof res.data.timing?.elapsedSeconds === 'number') {
+              elapsedSeconds = res.data.timing.elapsedSeconds;
+              updateTimerDisplay();
+            }
+            renderState(res.data.status, activeSessionId);
+            stopTimer();
+          }
         }
-      } else if (currentStatus === 'recording') {
-        const res = await sendTypedMessage<any>('background', 'PAUSE_CAPTURE', {
-          sessionId: activeSessionId
-        });
-        if (res.success && res.data) {
-          renderState(res.data.status, activeSessionId);
-        }
+      } finally {
+        pauseResumeButton.disabled = false;
       }
     });
   }
