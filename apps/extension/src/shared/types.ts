@@ -117,6 +117,17 @@ export interface ResumeCaptureMessage extends BaseMessage {
 
 export interface StopCaptureMessage extends BaseMessage {
   action: 'STOP_CAPTURE';
+  payload?: {
+    sessionId?: string;
+  };
+}
+
+export interface ResetCaptureMessage extends BaseMessage {
+  action: 'RESET_CAPTURE';
+}
+
+export interface GetSessionMessage extends BaseMessage {
+  action: 'GET_SESSION';
   payload: {
     sessionId: string;
   };
@@ -147,6 +158,8 @@ export type ExtensionMessage =
   | PauseCaptureMessage
   | ResumeCaptureMessage
   | StopCaptureMessage
+  | ResetCaptureMessage
+  | GetSessionMessage
   | OffscreenStartMessage
   | OffscreenStopMessage;
 
@@ -156,3 +169,4 @@ export interface MessageResponse<T = unknown> {
   errorCode?: ErrorCode;
   error?: string;
 }
+

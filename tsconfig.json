@@ -19,6 +19,8 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
     "types": ["chrome"],
     "paths": {
       "@shared/*": ["./apps/extension/src/shared/*"]

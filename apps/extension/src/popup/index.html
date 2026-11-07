@@ -10,6 +10,8 @@
       --accent: #3b82f6;
       --accent-hover: #2563eb;
       --danger: #ef4444;
+      --danger-hover: #dc2626;
+      --warning: #f59e0b;
       --text: #f8fafc;
       --text-muted: #94a3b8;
       --border: #1e293b;
@@ -69,11 +71,21 @@
       text-transform: uppercase;
     }
 
+    .status-badge.recording {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--danger);
+    }
+
+    .status-badge.paused {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--warning);
+    }
+
     .status-dot {
       width: 6px;
       height: 6px;
       border-radius: 50%;
-      background: var(--success);
+      background: currentColor;
     }
 
     .control-group {
@@ -117,6 +129,12 @@
       cursor: pointer;
     }
 
+    .btn-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
     .primary-btn {
       background: var(--accent);
       color: white;
@@ -130,6 +148,32 @@
 
     .primary-btn:hover {
       background: var(--accent-hover);
+    }
+
+    .danger-btn {
+      background: var(--danger);
+      color: white;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 10px;
+    }
+
+    .danger-btn:hover {
+      background: var(--danger-hover);
+    }
+
+    .warning-btn {
+      background: var(--warning);
+      color: black;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 10px;
+    }
+
+    .hidden {
+      display: none !important;
     }
 
     footer {
@@ -156,36 +200,56 @@
   </header>
 
   <main>
-    <div class="control-group">
-      <label for="captureTarget">Source</label>
-      <select id="captureTarget">
-        <option value="tab" selected>Current Tab</option>
-        <option value="screen">Entire Screen</option>
-        <option value="window">Application Window</option>
-      </select>
-    </div>
-
-    <div class="control-group">
-      <label for="qualityPreset">Quality Preset</label>
-      <select id="qualityPreset">
-        <option value="1080p" selected>1080p Full HD (30 FPS)</option>
-        <option value="720p">720p HD (30 FPS)</option>
-        <option value="4k">4K Ultra HD (60 FPS)</option>
-      </select>
-    </div>
-
-    <div class="control-group">
-      <div class="toggle-row">
-        <span>Tab Audio Monitor</span>
-        <input type="checkbox" id="tabAudioToggle" checked>
+    <div id="configSection">
+      <div class="control-group">
+        <label for="captureTarget">Source</label>
+        <select id="captureTarget">
+          <option value="tab" selected>Current Tab</option>
+          <option value="screen">Entire Screen</option>
+          <option value="window">Application Window</option>
+        </select>
       </div>
-      <div class="toggle-row">
-        <span>Microphone</span>
-        <input type="checkbox" id="micToggle">
+
+      <div class="control-group">
+        <label for="qualityPreset">Quality Preset</label>
+        <select id="qualityPreset">
+          <option value="1080p" selected>1080p Full HD (30 FPS)</option>
+          <option value="720p">720p HD (30 FPS)</option>
+          <option value="4k">4K Ultra HD (60 FPS)</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <div class="toggle-row">
+          <span>Tab Audio Monitor</span>
+          <input type="checkbox" id="tabAudioToggle" checked>
+        </div>
+        <div class="toggle-row">
+          <span>Microphone</span>
+          <input type="checkbox" id="micToggle">
+        </div>
+      </div>
+
+      <button id="recordButton" class="primary-btn">Start Recording</button>
+    </div>
+
+    <div id="activeSection" class="hidden">
+      <div class="control-group">
+        <label>Active Session</label>
+        <div id="activeSessionInfo" style="font-size: 11px; color: var(--text-muted); word-break: break-all;">-</div>
+      </div>
+      <div class="btn-row">
+        <button id="pauseResumeButton" class="warning-btn">Pause</button>
+        <button id="stopButton" class="danger-btn">Stop</button>
       </div>
     </div>
 
-    <button id="recordButton" class="primary-btn">Start Recording</button>
+    <div id="readySection" class="hidden">
+      <div class="control-group" style="text-align: center; padding: 12px 0;">
+        <span style="font-size: 14px; color: var(--success); font-weight: 600;">Recording Complete!</span>
+      </div>
+      <button id="resetButton" class="primary-btn">New Recording</button>
+    </div>
   </main>
 
   <footer>

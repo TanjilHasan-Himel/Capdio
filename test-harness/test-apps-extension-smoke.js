@@ -101,8 +101,92 @@ async function runSmokeTest() {
     }
     console.log('✅ PASS: Initial RecordStatus verified as IDLE.');
 
-    // 4. Test Offscreen Document Lifecycle via Service Worker
-    console.log('4. Testing Offscreen Document creation and message bus...');
+    // 4. Test FSM Transitions & Session Registry (OCS-102)
+    console.log('4. Testing FSM Transitions & Session Registry (START_CAPTURE, STOP_CAPTURE, RESET_CAPTURE)...');
+    const startRes = await popupPage.evaluate(async () => {
+      return new Promise((resolve) => {
+        chrome.runtime.sendMessage({
+          id: 'test_msg_start',
+          target: 'background',
+          action: 'START_CAPTURE',
+          timestamp: Date.now(),
+          payload: {
+            profile: {
+              width: 1920,
+              height: 1080,
+              fps: 30,
+              mimePreference: 'webm',
+              tabAudio: true,
+              microphone: false
+            }
+          }
+        }, resolve);
+      });
+    });
+
+    console.log('START_CAPTURE response:', startRes);
+    if (!startRes || !startRes.success || startRes.data?.status !== 'preparing') {
+      throw new Error(`Expected preparing status, got: ${JSON.stringify(startRes)}`);
+    }
+    const sessionId = startRes.data.sessionId;
+    console.log(`✅ PASS: FSM transitioned to PREPARING. Session ID: ${sessionId}`);
+
+    // Verify status via GET_STATUS
+    const activeStatusRes = await popupPage.evaluate(async () => {
+      return new Promise((resolve) => {
+        chrome.runtime.sendMessage({
+          id: 'test_msg_status',
+          target: 'background',
+          action: 'GET_STATUS',
+          timestamp: Date.now()
+        }, resolve);
+      });
+    });
+    console.log('Active GET_STATUS response:', activeStatusRes);
+    if (activeStatusRes.data?.status !== 'preparing' || activeStatusRes.data?.activeSessionId !== sessionId) {
+      throw new Error(`Active status mismatch: ${JSON.stringify(activeStatusRes)}`);
+    }
+    console.log('✅ PASS: Service Worker preserves active session manifest and FSM state.');
+
+    // Stop Capture
+    const stopRes = await popupPage.evaluate(async (sessId) => {
+      return new Promise((resolve) => {
+        chrome.runtime.sendMessage({
+          id: 'test_msg_stop',
+          target: 'background',
+          action: 'STOP_CAPTURE',
+          timestamp: Date.now(),
+          payload: { sessionId: sessId }
+        }, resolve);
+      });
+    }, sessionId);
+
+    console.log('STOP_CAPTURE response:', stopRes);
+    if (!stopRes || !stopRes.success || stopRes.data?.status !== 'ready') {
+      throw new Error(`Expected ready status from stop, got: ${JSON.stringify(stopRes)}`);
+    }
+    console.log('✅ PASS: FSM transitioned to READY upon STOP_CAPTURE.');
+
+    // Reset Capture
+    const resetRes = await popupPage.evaluate(async () => {
+      return new Promise((resolve) => {
+        chrome.runtime.sendMessage({
+          id: 'test_msg_reset',
+          target: 'background',
+          action: 'RESET_CAPTURE',
+          timestamp: Date.now()
+        }, resolve);
+      });
+    });
+
+    console.log('RESET_CAPTURE response:', resetRes);
+    if (!resetRes || !resetRes.success || resetRes.data?.status !== 'idle') {
+      throw new Error(`Expected idle status from reset, got: ${JSON.stringify(resetRes)}`);
+    }
+    console.log('✅ PASS: FSM reset to IDLE.');
+
+    // 5. Test Offscreen Document Lifecycle via Service Worker
+    console.log('5. Testing Offscreen Document creation and message bus...');
     const ensureOffscreenRes = await popupPage.evaluate(async () => {
       return new Promise((resolve) => {
         chrome.runtime.sendMessage({
@@ -136,7 +220,7 @@ async function runSmokeTest() {
     console.log('✅ PASS: Offscreen Document successfully instantiated and verified via Typed Message Bus.');
 
     console.log('\n=============================================================');
-    console.log('🎉 OCS-101 MV3 APP SKELETON INTEGRATION SMOKE TEST PASSED!');
+    console.log('🎉 OCS-101 / OCS-102 INTEGRATION SMOKE TEST PASSED!');
     console.log('=============================================================\n');
     return { success: true };
   } finally {
@@ -148,3 +232,4 @@ runSmokeTest().catch((err) => {
   console.error('❌ SMOKE TEST FAILED:', err);
   process.exit(1);
 });
+

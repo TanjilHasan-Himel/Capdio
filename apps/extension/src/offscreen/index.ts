@@ -38,3 +38,4 @@ registerMessageListener('offscreen', {
 });
 
 console.log('[Capdio Offscreen] Host ready and message listeners registered');
+
