@@ -1,8 +1,8 @@
 // apps/extension/src/offscreen/index.ts
-// Capdio Offscreen Document - Media Sandbox & Recorder Host (OCS-102 / OCS-103 / OCS-104 / OCS-105)
+// Capdio Offscreen Document - Media Sandbox & Recorder Host (OCS-102 - OCS-106)
 
 import { registerMessageListener, sendTypedMessage, MessageBusError } from '../shared/message-bus.ts';
-import type { CaptureProfile, CaptureKind } from '../shared/types.ts';
+import type { CaptureProfile, CaptureKind, AudioTrackMetadata } from '../shared/types.ts';
 import { getCodecCapabilityReport, selectBestCodec } from '../shared/codec-detector.ts';
 
 console.log('[Capdio Offscreen] Host initializing...');
@@ -15,6 +15,41 @@ let activeSessionId: string | null = null;
 let activeNegotiatedMime: string | null = null;
 let activeIsFallback = false;
 let recordedChunks: Blob[] = [];
+
+// Modular Gain Nodes for Audio Graph Control (OCS-106)
+let monitorGainNode: GainNode | null = null;
+let tabRecordGainNode: GainNode | null = null;
+let micRecordGainNode: GainNode | null = null;
+
+function cleanupAudioAndStreams() {
+  if (activeMicStream) {
+    activeMicStream.getTracks().forEach(t => {
+      try {
+        t.stop();
+      } catch (err) {
+        console.warn('[Offscreen] Mic track stop error:', err);
+      }
+    });
+    activeMicStream = null;
+  }
+  if (activeStream) {
+    activeStream.getTracks().forEach(t => {
+      try {
+        t.stop();
+      } catch (err) {
+        console.warn('[Offscreen] Active stream track stop error:', err);
+      }
+    });
+    activeStream = null;
+  }
+  if (activeAudioContext && activeAudioContext.state !== 'closed') {
+    activeAudioContext.close().catch(() => {});
+    activeAudioContext = null;
+  }
+  monitorGainNode = null;
+  tabRecordGainNode = null;
+  micRecordGainNode = null;
+}
 
 function probeHostCapabilities() {
   return {
@@ -111,29 +146,51 @@ async function startCaptureAndRecord(payload: {
       }
     };
 
-    // Audio Graph setup
+    // Audio Graph setup (OCS-106: playback monitor & optional microphone)
     let finalAudioTrack: MediaStreamTrack | null = null;
+    let hasMicrophone = false;
+
     if (sourceAudioTracks.length > 0 || profile.microphone) {
       activeAudioContext = new AudioContext();
       const mixedDestination = activeAudioContext.createMediaStreamDestination();
 
       if (sourceAudioTracks.length > 0) {
         const sourceAudio = activeAudioContext.createMediaStreamSource(new MediaStream([sourceAudioTracks[0]!]));
-        // Route 1: Record mixer
-        sourceAudio.connect(mixedDestination);
+
+        // Route 1: Record mixer path
+        tabRecordGainNode = activeAudioContext.createGain();
+        tabRecordGainNode.gain.value = 1.0;
+        sourceAudio.connect(tabRecordGainNode);
+        tabRecordGainNode.connect(mixedDestination);
+
         // Route 2: Speakers monitor ONLY for tab capture to prevent tab muting
         // (Do NOT route screen/window audio to speakers, as system audio is already audible through speakers)
         if (kind === 'tab' && profile.tabAudio) {
-          sourceAudio.connect(activeAudioContext.destination);
+          monitorGainNode = activeAudioContext.createGain();
+          monitorGainNode.gain.value = 1.0;
+          sourceAudio.connect(monitorGainNode);
+          monitorGainNode.connect(activeAudioContext.destination);
+          console.log('[Capdio Offscreen] Tab audio monitor connected to speakers (gain: 1.0)');
         }
       }
 
       if (profile.microphone) {
         try {
-          activeMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          activeMicStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true
+            }
+          });
           const micSource = activeAudioContext.createMediaStreamSource(activeMicStream);
-          // Route exclusively to recording mixer (NEVER to speakers to prevent feedback!)
-          micSource.connect(mixedDestination);
+          micRecordGainNode = activeAudioContext.createGain();
+          micRecordGainNode.gain.value = 1.0;
+          micSource.connect(micRecordGainNode);
+          // CRITICAL: Connect ONLY to recording mixedDestination, NEVER to activeAudioContext.destination
+          micRecordGainNode.connect(mixedDestination);
+          hasMicrophone = true;
+          console.log('[Capdio Offscreen] Microphone connected exclusively to recording mixer');
         } catch (micErr: any) {
           console.warn('[Offscreen] Optional microphone access failed, proceeding without mic:', micErr);
         }
@@ -144,6 +201,14 @@ async function startCaptureAndRecord(payload: {
         finalAudioTrack = mixedTracks[0]!;
       }
     }
+
+    const audioMetadata: AudioTrackMetadata = {
+      hasTabAudio: sourceAudioTracks.length > 0,
+      hasMicrophone,
+      sampleRate: finalAudioTrack?.getSettings()?.sampleRate,
+      channelCount: finalAudioTrack?.getSettings()?.channelCount,
+      echoCancellation: finalAudioTrack?.getSettings()?.echoCancellation
+    };
 
     // Combine video track and mixed audio track into recording stream
     const recordingStream = new MediaStream();
@@ -187,10 +252,12 @@ async function startCaptureAndRecord(payload: {
       mimeType: activeNegotiatedMime,
       isFallback: activeIsFallback,
       videoSettings: videoTracks[0]?.getSettings(),
-      audioTracksCount: recordingStream.getAudioTracks().length
+      audioTracksCount: recordingStream.getAudioTracks().length,
+      audioMetadata
     };
   } catch (err: any) {
     console.error('[Capdio Offscreen] Failed to start capture and record:', err);
+    cleanupAudioAndStreams();
     const code = typeof err.code === 'string' ? err.code : 'E_CAPTURE_DENIED';
     throw new MessageBusError(code, err.message || 'Capture initialization failed');
   }
@@ -221,19 +288,8 @@ async function stopCaptureAndRecord() {
   activeRecorder.stop();
   await stopPromise;
 
-  // Release all tracks
-  if (activeStream) {
-    activeStream.getTracks().forEach(t => t.stop());
-    activeStream = null;
-  }
-  if (activeMicStream) {
-    activeMicStream.getTracks().forEach(t => t.stop());
-    activeMicStream = null;
-  }
-  if (activeAudioContext) {
-    await activeAudioContext.close().catch(() => {});
-    activeAudioContext = null;
-  }
+  // Release all audio and media tracks cleanly (OCS-106)
+  cleanupAudioAndStreams();
 
   const mimeType = activeRecorder?.mimeType || 'video/webm';
   const finalBlob = new Blob(recordedChunks, { type: mimeType });
@@ -308,6 +364,31 @@ registerMessageListener('offscreen', {
 
   OFFSCREEN_STOP: async () => {
     return await stopCaptureAndRecord();
+  },
+
+  SET_AUDIO_MONITOR: async (msg: any) => {
+    if (monitorGainNode) {
+      const volume = typeof msg.payload?.volume === 'number' ? msg.payload.volume : (msg.payload?.enabled !== false ? 1.0 : 0.0);
+      monitorGainNode.gain.value = Math.max(0, Math.min(1, volume));
+      return { monitorEnabled: monitorGainNode.gain.value > 0, volume: monitorGainNode.gain.value };
+    }
+    return { monitorEnabled: false, volume: 0 };
+  },
+
+  SET_MIC_MUTE: async (msg: any) => {
+    if (micRecordGainNode) {
+      micRecordGainNode.gain.value = msg.payload?.muted ? 0.0 : 1.0;
+      return { micMuted: micRecordGainNode.gain.value === 0 };
+    }
+    return { micMuted: false };
+  },
+
+  GET_AUDIO_STATUS: async () => {
+    return {
+      hasAudioContext: !!activeAudioContext,
+      hasMicStream: !!activeMicStream,
+      monitorActive: !!monitorGainNode && monitorGainNode.gain.value > 0
+    };
   }
 });
 

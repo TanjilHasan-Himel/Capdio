@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test:unit": "node tests/unit/message-bus.test.js && node tests/unit/state-machine.test.js && node tests/unit/codec-detection.test.js",
     "test:codec": "node test-harness/test-codec-fallback.js",
+    "test:audio": "node test-harness/test-audio-routing.js",
     "test:smoke": "node test-harness/test-apps-extension-smoke.js",
     "test:tab-capture": "node test-harness/test-apps-tab-capture.js",
     "test:screen-capture": "node test-harness/test-apps-screen-capture.js",

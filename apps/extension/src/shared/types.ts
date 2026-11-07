@@ -79,6 +79,14 @@ export interface CaptureProfile {
   microphone: boolean;
 }
 
+export interface AudioTrackMetadata {
+  hasTabAudio: boolean;
+  hasMicrophone: boolean;
+  sampleRate?: number;
+  channelCount?: number;
+  echoCancellation?: boolean | string;
+}
+
 export interface SourceInfo {
   sourceId: string;
   kind: CaptureKind;
@@ -88,6 +96,7 @@ export interface SourceInfo {
   actualWidth?: number;
   actualHeight?: number;
   actualFps?: number;
+  audioMetadata?: AudioTrackMetadata;
 }
 
 export interface RecordingSegment {
@@ -224,6 +233,25 @@ export interface OffscreenStopMessage extends BaseMessage {
   };
 }
 
+export interface SetAudioMonitorMessage extends BaseMessage {
+  action: 'SET_AUDIO_MONITOR';
+  payload?: {
+    enabled?: boolean;
+    volume?: number;
+  };
+}
+
+export interface SetMicMuteMessage extends BaseMessage {
+  action: 'SET_MIC_MUTE';
+  payload?: {
+    muted: boolean;
+  };
+}
+
+export interface GetAudioStatusMessage extends BaseMessage {
+  action: 'GET_AUDIO_STATUS';
+}
+
 export type ExtensionMessage =
   | PingMessage
   | ProbeCapabilitiesMessage
@@ -237,7 +265,10 @@ export type ExtensionMessage =
   | OffscreenStartMessage
   | OffscreenPauseMessage
   | OffscreenResumeMessage
-  | OffscreenStopMessage;
+  | OffscreenStopMessage
+  | SetAudioMonitorMessage
+  | SetMicMuteMessage
+  | GetAudioStatusMessage;
 
 export interface MessageResponse<T = unknown> {
   success: boolean;

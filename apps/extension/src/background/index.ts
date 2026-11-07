@@ -217,7 +217,8 @@ registerMessageListener('background', {
         authorizedAt: new Date().toISOString(),
         actualWidth: offscreenRes.data?.videoSettings?.width || profile.width,
         actualHeight: offscreenRes.data?.videoSettings?.height || profile.height,
-        actualFps: offscreenRes.data?.videoSettings?.frameRate || profile.fps
+        actualFps: offscreenRes.data?.videoSettings?.frameRate || profile.fps,
+        audioMetadata: offscreenRes.data?.audioMetadata
       });
 
       return {
@@ -344,6 +345,24 @@ registerMessageListener('background', {
   CLOSE_OFFSCREEN: async () => {
     await closeOffscreenDocument();
     return { hasDocument: false };
+  },
+
+  SET_AUDIO_MONITOR: async (msg: any) => {
+    await ensureOffscreenDocument();
+    const res = await sendTypedMessage<any>('offscreen', 'SET_AUDIO_MONITOR', msg.payload);
+    return res.data;
+  },
+
+  SET_MIC_MUTE: async (msg: any) => {
+    await ensureOffscreenDocument();
+    const res = await sendTypedMessage<any>('offscreen', 'SET_MIC_MUTE', msg.payload);
+    return res.data;
+  },
+
+  GET_AUDIO_STATUS: async () => {
+    await ensureOffscreenDocument();
+    const res = await sendTypedMessage<any>('offscreen', 'GET_AUDIO_STATUS');
+    return res.data;
   }
 });
 
