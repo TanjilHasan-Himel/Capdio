@@ -14,6 +14,61 @@ export type RecordStatus =
   | 'interrupted'
   | 'error';
 
+export type QualityPresetName = 'economy' | 'balanced' | 'high' | 'ultra';
+
+export interface QualityPreset {
+  name: QualityPresetName;
+  label: string;
+  width: number;
+  height: number;
+  fps: 24 | 30 | 60;
+  videoBitrate: number; // in bps
+}
+
+export const QUALITY_PRESETS: Record<QualityPresetName, QualityPreset> = {
+  economy: {
+    name: 'economy',
+    label: '720p HD (30 FPS, 2.5 Mbps)',
+    width: 1280,
+    height: 720,
+    fps: 30,
+    videoBitrate: 2_500_000
+  },
+  balanced: {
+    name: 'balanced',
+    label: '1080p Full HD (30 FPS, 5.0 Mbps)',
+    width: 1920,
+    height: 1080,
+    fps: 30,
+    videoBitrate: 5_000_000
+  },
+  high: {
+    name: 'high',
+    label: '1440p 2K (60 FPS, 10.0 Mbps)',
+    width: 2560,
+    height: 1440,
+    fps: 60,
+    videoBitrate: 10_000_000
+  },
+  ultra: {
+    name: 'ultra',
+    label: '4K Ultra HD (60 FPS, 20.0 Mbps)',
+    width: 3840,
+    height: 2160,
+    fps: 60,
+    videoBitrate: 20_000_000
+  }
+};
+
+export interface CodecCapabilityReport {
+  supportedMimeTypes: string[];
+  bestWebM: string | null;
+  bestMp4: string | null;
+  canRecordWebM: boolean;
+  canRecordMp4: boolean;
+  defaultMimeType: string;
+}
+
 export interface CaptureProfile {
   width: number;
   height: number;
@@ -87,6 +142,10 @@ export interface BaseMessage {
 // Concrete Message Actions
 export interface PingMessage extends BaseMessage {
   action: 'PING';
+}
+
+export interface ProbeCapabilitiesMessage extends BaseMessage {
+  action: 'PROBE_CAPABILITIES';
 }
 
 export interface GetStatusMessage extends BaseMessage {
@@ -167,6 +226,7 @@ export interface OffscreenStopMessage extends BaseMessage {
 
 export type ExtensionMessage =
   | PingMessage
+  | ProbeCapabilitiesMessage
   | GetStatusMessage
   | StartCaptureMessage
   | PauseCaptureMessage

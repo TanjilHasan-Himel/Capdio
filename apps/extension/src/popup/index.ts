@@ -1,8 +1,9 @@
 // apps/extension/src/popup/index.ts
-// Capdio Popup Interface Logic with State Synchronization (OCS-101 / OCS-102 / OCS-103)
+// Capdio Popup Interface Logic with State Synchronization (OCS-101 - OCS-105)
 
 import { sendTypedMessage } from '../shared/message-bus.ts';
-import type { RecordStatus, CaptureProfile } from '../shared/types.ts';
+import type { RecordStatus, CaptureProfile, QualityPresetName } from '../shared/types.ts';
+import { QUALITY_PRESETS } from '../shared/types.ts';
 
 console.log('[Capdio Popup] Initializing UI...');
 
@@ -28,6 +29,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const captureTarget = document.getElementById('captureTarget') as HTMLSelectElement;
   const qualityPreset = document.getElementById('qualityPreset') as HTMLSelectElement;
+  const formatPreference = document.getElementById('formatPreference') as HTMLSelectElement;
+  const mp4Option = document.getElementById('mp4Option') as HTMLOptionElement;
   const tabAudioToggle = document.getElementById('tabAudioToggle') as HTMLInputElement;
   const micToggle = document.getElementById('micToggle') as HTMLInputElement;
 
@@ -36,6 +39,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   let timerInterval: any = null;
   let elapsedSeconds = 0;
   let lastRecordingBase64: string | null = null;
+  let lastRecordingMimeType = 'video/webm';
+  let lastRecordingIsFallback = false;
 
   function showNotice(title: string, message: string) {
     if (noticeBanner && noticeTitle && noticeMessage) {
@@ -138,30 +143,37 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderState('idle');
   }
 
+  // Probe codec capabilities (OCS-105)
+  try {
+    const capRes = await sendTypedMessage<any>('background', 'PROBE_CAPABILITIES');
+    console.log('[Capdio Popup] Capabilities response:', capRes);
+    if (capRes.success && capRes.data?.report) {
+      const report = capRes.data.report;
+      if (!report.canRecordMp4 && mp4Option) {
+        mp4Option.disabled = true;
+        mp4Option.textContent = 'MP4 (Unsupported on this browser)';
+      }
+    }
+  } catch (capErr) {
+    console.warn('[Capdio Popup] Failed to probe capabilities:', capErr);
+  }
+
   // Start Recording
   if (recordButton) {
     recordButton.addEventListener('click', async () => {
       recordButton.disabled = true;
       recordButton.textContent = 'Starting...';
 
-      let width = 1920;
-      let height = 1080;
-      let fps: 24 | 30 | 60 = 30;
-
-      if (qualityPreset?.value === '720p') {
-        width = 1280;
-        height = 720;
-      } else if (qualityPreset?.value === '4k') {
-        width = 3840;
-        height = 2160;
-        fps = 60;
-      }
+      const presetKey = (qualityPreset?.value || 'balanced') as QualityPresetName;
+      const preset = QUALITY_PRESETS[presetKey] || QUALITY_PRESETS.balanced;
+      const formatPref = ((formatPreference?.value || 'webm') as 'webm' | 'mp4');
 
       const profile: CaptureProfile = {
-        width,
-        height,
-        fps,
-        mimePreference: 'webm',
+        width: preset.width,
+        height: preset.height,
+        fps: preset.fps,
+        videoBitrate: preset.videoBitrate,
+        mimePreference: formatPref,
         tabAudio: tabAudioToggle?.checked ?? true,
         microphone: micToggle?.checked ?? false
       };
@@ -281,11 +293,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         const recResult = res.data.recordingResult;
         if (recResult?.base64Data) {
           lastRecordingBase64 = recResult.base64Data;
+          lastRecordingMimeType = recResult.mimeType || recResult.negotiatedMimeType || 'video/webm';
+          lastRecordingIsFallback = !!recResult.isFallback;
           (window as any).__lastRecordingBase64 = recResult.base64Data;
           (window as any).__lastResult = res.data;
+
+          const isMp4 = lastRecordingMimeType.includes('mp4');
+          if (downloadButton) {
+            downloadButton.textContent = isMp4 ? 'Download MP4' : 'Download WebM';
+          }
+
           if (readyInfo) {
             const mb = (recResult.totalBytes / (1024 * 1024)).toFixed(2);
-            readyInfo.textContent = `Size: ${mb} MB (${recResult.chunksCount} chunks)`;
+            let detail = `Size: ${mb} MB (${recResult.chunksCount} chunks) • ${isMp4 ? 'MP4' : 'WebM'}`;
+            if (lastRecordingIsFallback) {
+              detail += ' (fallback from MP4)';
+            }
+            readyInfo.textContent = detail;
           }
         }
         renderState(res.data.status, activeSessionId);
@@ -301,17 +325,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
 
+      const isMp4 = lastRecordingMimeType.includes('mp4');
+      const ext = isMp4 ? 'mp4' : 'webm';
+      const mime = isMp4 ? 'video/mp4' : 'video/webm';
+
       const byteChars = atob(lastRecordingBase64);
       const byteNumbers = new Array(byteChars.length);
       for (let i = 0; i < byteChars.length; i++) {
         byteNumbers[i] = byteChars.charCodeAt(i);
       }
       const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: 'video/webm' });
+      const blob = new Blob([byteArray], { type: mime });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `capdio-recording-${activeSessionId || Date.now()}.webm`;
+      a.download = `capdio-recording-${activeSessionId || Date.now()}.${ext}`;
       a.click();
       URL.revokeObjectURL(url);
     });

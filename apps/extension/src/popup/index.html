@@ -247,9 +247,18 @@
       <div class="control-group">
         <label for="qualityPreset">Quality Preset</label>
         <select id="qualityPreset">
-          <option value="1080p" selected>1080p Full HD (30 FPS)</option>
-          <option value="720p">720p HD (30 FPS)</option>
-          <option value="4k">4K Ultra HD (60 FPS)</option>
+          <option value="economy">Economy — 720p HD (30 FPS, 2.5 Mbps)</option>
+          <option value="balanced" selected>Balanced — 1080p Full HD (30 FPS, 5.0 Mbps)</option>
+          <option value="high">High — 1440p 2K (60 FPS, 10.0 Mbps)</option>
+          <option value="ultra">Ultra — 4K UHD (60 FPS, 20.0 Mbps)</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label for="formatPreference">Format Preference</label>
+        <select id="formatPreference">
+          <option value="webm" selected>WebM (VP9 / Opus)</option>
+          <option value="mp4" id="mp4Option">MP4 (H.264 / AAC)</option>
         </select>
       </div>
 

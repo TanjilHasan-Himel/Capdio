@@ -1,8 +1,9 @@
 // apps/extension/src/offscreen/index.ts
-// Capdio Offscreen Document - Media Sandbox & Recorder Host (OCS-102 / OCS-103 / OCS-104)
+// Capdio Offscreen Document - Media Sandbox & Recorder Host (OCS-102 / OCS-103 / OCS-104 / OCS-105)
 
 import { registerMessageListener, sendTypedMessage, MessageBusError } from '../shared/message-bus.ts';
 import type { CaptureProfile, CaptureKind } from '../shared/types.ts';
+import { getCodecCapabilityReport, selectBestCodec } from '../shared/codec-detector.ts';
 
 console.log('[Capdio Offscreen] Host initializing...');
 
@@ -11,44 +12,17 @@ let activeRecorder: MediaRecorder | null = null;
 let activeAudioContext: AudioContext | null = null;
 let activeMicStream: MediaStream | null = null;
 let activeSessionId: string | null = null;
+let activeNegotiatedMime: string | null = null;
+let activeIsFallback = false;
 let recordedChunks: Blob[] = [];
 
-function probeCapabilities() {
-  const codecs = [
-    'video/webm',
-    'video/webm;codecs=vp8,opus',
-    'video/webm;codecs=vp9,opus',
-    'video/webm;codecs=h264,opus',
-    'video/mp4'
-  ];
-
-  const codecSupport: Record<string, boolean> = {};
-  for (const codec of codecs) {
-    codecSupport[codec] = typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(codec);
-  }
-
+function probeHostCapabilities() {
   return {
     audioContext: typeof AudioContext !== 'undefined',
     mediaDevices: typeof navigator.mediaDevices !== 'undefined',
     mediaRecorder: typeof MediaRecorder !== 'undefined',
-    codecs: codecSupport
+    report: getCodecCapabilityReport()
   };
-}
-
-function selectBestMimeType(preference: 'webm' | 'mp4' = 'webm'): string {
-  if (preference === 'mp4' && MediaRecorder.isTypeSupported('video/mp4;codecs=avc1,mp4a.40.2')) {
-    return 'video/mp4;codecs=avc1,mp4a.40.2';
-  }
-  if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) {
-    return 'video/webm;codecs=vp9,opus';
-  }
-  if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')) {
-    return 'video/webm;codecs=vp8,opus';
-  }
-  if (MediaRecorder.isTypeSupported('video/webm')) {
-    return 'video/webm';
-  }
-  return '';
 }
 
 async function startCaptureAndRecord(payload: {
@@ -178,13 +152,16 @@ async function startCaptureAndRecord(payload: {
       recordingStream.addTrack(finalAudioTrack);
     }
 
-    const mimeType = selectBestMimeType(profile.mimePreference);
-    if (!mimeType) {
-      throw new MessageBusError('E_CODEC_UNSUPPORTED', 'No supported WebM or MP4 MediaRecorder codec found');
-    }
+    const { mimeType, isFallback } = selectBestCodec(profile.mimePreference);
+    activeNegotiatedMime = mimeType;
+    activeIsFallback = isFallback;
+
+    console.log(
+      `[Capdio Offscreen] Selected MIME: ${activeNegotiatedMime} (requested: ${profile.mimePreference}, isFallback: ${activeIsFallback})`
+    );
 
     activeRecorder = new MediaRecorder(recordingStream, {
-      mimeType,
+      mimeType: activeNegotiatedMime,
       ...(profile.videoBitrate ? { videoBitsPerSecond: profile.videoBitrate } : {})
     });
 
@@ -202,18 +179,20 @@ async function startCaptureAndRecord(payload: {
     activeRecorder.start(250); // Slice every 250ms for incremental reliability
     await startPromise;
 
-    console.log('[Capdio Offscreen] MediaRecorder actively recording with MIME:', mimeType);
+    console.log('[Capdio Offscreen] MediaRecorder actively recording with MIME:', activeNegotiatedMime);
 
     return {
       sessionId,
       status: 'recording',
-      mimeType,
+      mimeType: activeNegotiatedMime,
+      isFallback: activeIsFallback,
       videoSettings: videoTracks[0]?.getSettings(),
       audioTracksCount: recordingStream.getAudioTracks().length
     };
   } catch (err: any) {
     console.error('[Capdio Offscreen] Failed to start capture and record:', err);
-    throw new MessageBusError('E_CAPTURE_DENIED', err.message || 'Capture initialization failed');
+    const code = typeof err.code === 'string' ? err.code : 'E_CAPTURE_DENIED';
+    throw new MessageBusError(code, err.message || 'Capture initialization failed');
   }
 }
 
@@ -282,11 +261,15 @@ async function stopCaptureAndRecord() {
     totalBytes,
     chunksCount,
     mimeType: finalBlob.type,
+    negotiatedMimeType: activeNegotiatedMime || finalBlob.type,
+    isFallback: activeIsFallback,
     base64Data
   };
 
   activeRecorder = null;
   activeSessionId = null;
+  activeNegotiatedMime = null;
+  activeIsFallback = false;
   recordedChunks = [];
 
   return result;
@@ -297,8 +280,12 @@ registerMessageListener('offscreen', {
     return {
       offscreenActive: true,
       timestamp: Date.now(),
-      capabilities: probeCapabilities()
+      report: getCodecCapabilityReport()
     };
+  },
+
+  PROBE_CAPABILITIES: async () => {
+    return probeHostCapabilities();
   },
 
   OFFSCREEN_START: async (msg: any) => {

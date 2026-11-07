@@ -146,6 +146,18 @@ registerMessageListener('background', {
     };
   },
 
+  PROBE_CAPABILITIES: async () => {
+    await ensureOffscreenDocument();
+    const offscreenRes = await sendTypedMessage<any>('offscreen', 'PROBE_CAPABILITIES');
+    if (!offscreenRes.success) {
+      throw new MessageBusError(
+        offscreenRes.errorCode || 'E_CODEC_UNSUPPORTED',
+        offscreenRes.error || 'Failed to probe capabilities in offscreen host'
+      );
+    }
+    return offscreenRes.data;
+  },
+
   START_CAPTURE: async (msg: StartCaptureMessage) => {
     if (stateMachine.isActive()) {
       throw new MessageBusError(
@@ -214,11 +226,12 @@ registerMessageListener('background', {
         offscreenResult: offscreenRes.data
       };
     } catch (err: any) {
-      stateMachine.markError(err.code || 'E_CAPTURE_DENIED', err.message);
-      await sessionRegistry.updateSessionStatus(session.sessionId, 'error', err.code || 'E_CAPTURE_DENIED');
+      const code = typeof err.code === 'string' ? err.code : 'E_CAPTURE_DENIED';
+      stateMachine.markError(code, err.message);
+      await sessionRegistry.updateSessionStatus(session.sessionId, 'error', code);
       // Reset state machine back to idle so user can retry immediately after denial/cancellation
       stateMachine.reset();
-      throw err;
+      throw new MessageBusError(code, err.message);
     }
   },
 
