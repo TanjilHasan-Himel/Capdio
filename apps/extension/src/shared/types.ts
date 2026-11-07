@@ -1,7 +1,7 @@
 // apps/extension/src/shared/types.ts
 // Capdio Core Data Types & Message Contracts (MASTER_SPEC.md §02.5 & §02.9)
 
-export type CaptureKind = 'tab' | 'display' | 'window';
+export type CaptureKind = 'tab' | 'display' | 'screen' | 'window';
 
 export type RecordStatus =
   | 'idle'
@@ -141,7 +141,8 @@ export interface OffscreenStartMessage extends BaseMessage {
   action: 'OFFSCREEN_START';
   payload: {
     sessionId: string;
-    streamId: string;
+    streamId?: string;
+    kind?: CaptureKind;
     profile: CaptureProfile;
   };
 }

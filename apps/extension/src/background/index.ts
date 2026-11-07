@@ -107,8 +107,8 @@ export async function ensureOffscreenDocument(): Promise<void> {
 
   await chrome.offscreen.createDocument({
     url: OFFSCREEN_PATH,
-    reasons: [chrome.offscreen.Reason.USER_MEDIA],
-    justification: 'Hosting Web Audio mixing and MediaRecorder for screen/tab capture'
+    reasons: [chrome.offscreen.Reason.USER_MEDIA, chrome.offscreen.Reason.DISPLAY_MEDIA],
+    justification: 'Hosting Web Audio mixing, MediaRecorder, and display media capture for screen/tab recording'
   });
   console.log('[Capdio SW] Offscreen document created');
 }
@@ -154,6 +154,7 @@ registerMessageListener('background', {
       );
     }
 
+    const targetKind = (msg.payload?.targetKind || 'tab') as 'tab' | 'screen' | 'window';
     const profile = msg.payload?.profile || {
       width: 1920,
       height: 1080,
@@ -163,22 +164,27 @@ registerMessageListener('background', {
       microphone: false
     };
 
-    const targetTabId = await resolveTargetTabId(msg.payload?.targetTabId);
     const session = await sessionRegistry.createSession(profile);
     stateMachine.requestStart(session.sessionId);
     stateMachine.markPreparing();
 
     try {
-      // 1. Acquire ephemeral 24-char cryptographic token from chrome.tabCapture (if not provided by caller)
-      const streamId = msg.payload?.streamId || (await getTabMediaStreamId(targetTabId));
+      let streamId: string | undefined = undefined;
+      let targetTabId: number | undefined = undefined;
 
-      // 2. Ensure Offscreen Host exists
+      if (targetKind === 'tab') {
+        targetTabId = await resolveTargetTabId(msg.payload?.targetTabId);
+        streamId = msg.payload?.streamId || (await getTabMediaStreamId(targetTabId));
+      }
+
+      // Ensure Offscreen Host exists with USER_MEDIA and DISPLAY_MEDIA
       await ensureOffscreenDocument();
 
-      // 3. Delegate to Offscreen Document for Web Audio & MediaRecorder
+      // Delegate to Offscreen Document for Web Audio & MediaRecorder
       const offscreenRes = await sendTypedMessage<any>('offscreen', 'OFFSCREEN_START', {
         sessionId: session.sessionId,
         streamId,
+        kind: targetKind,
         profile
       });
 
@@ -192,14 +198,14 @@ registerMessageListener('background', {
       stateMachine.markRecording();
       await sessionRegistry.updateSessionStatus(session.sessionId, 'recording');
       await sessionRegistry.addSource(session.sessionId, {
-        sourceId: streamId.substring(0, 12),
-        kind: 'tab',
-        tabId: targetTabId,
-        displayLabel: 'Active Tab',
+        sourceId: streamId ? streamId.substring(0, 12) : `${targetKind}_${Date.now()}`,
+        kind: targetKind,
+        tabId: targetKind === 'tab' ? targetTabId : undefined,
+        displayLabel: msg.payload?.displayLabel || (targetKind === 'tab' ? 'Active Tab' : 'Screen / Window'),
         authorizedAt: new Date().toISOString(),
-        actualWidth: profile.width,
-        actualHeight: profile.height,
-        actualFps: profile.fps
+        actualWidth: offscreenRes.data?.videoSettings?.width || profile.width,
+        actualHeight: offscreenRes.data?.videoSettings?.height || profile.height,
+        actualFps: offscreenRes.data?.videoSettings?.frameRate || profile.fps
       });
 
       return {
@@ -210,6 +216,8 @@ registerMessageListener('background', {
     } catch (err: any) {
       stateMachine.markError(err.code || 'E_CAPTURE_DENIED', err.message);
       await sessionRegistry.updateSessionStatus(session.sessionId, 'error', err.code || 'E_CAPTURE_DENIED');
+      // Reset state machine back to idle so user can retry immediately after denial/cancellation
+      stateMachine.reset();
       throw err;
     }
   },

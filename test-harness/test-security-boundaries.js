@@ -12,7 +12,7 @@ const __dirname = path.dirname(__filename);
 
 const CHROME_PATH = 'C:\\Users\\Himel\\.cache\\puppeteer\\chrome\\win64-152.0.7977.42\\chrome-win64\\chrome.exe';
 const EXTENSION_PATH = path.join(__dirname, 'extension');
-const PORT = 3456;
+const PORT = 3460;
 
 // Whitelist of strictly permitted permissions in V1
 const ALLOWED_PERMISSIONS = new Set([
@@ -131,7 +131,10 @@ async function runRuntimeSecurityTests(server) {
       `--load-extension=${EXTENSION_PATH}`,
       '--no-sandbox',
       '--disable-setuid-sandbox',
-      '--autoplay-policy=no-user-gesture-required'
+      '--autoplay-policy=no-user-gesture-required',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+      '--disable-background-timer-throttling'
     ],
     defaultViewport: { width: 1280, height: 720 }
   });
@@ -155,7 +158,24 @@ async function runRuntimeSecurityTests(server) {
     const extensionId = new URL(extensionUrl).hostname;
     console.log(`✅ Extension loaded. ID: ${extensionId}`);
 
+    const extensionOrigin = `chrome-extension://${extensionId}`;
+    await browser.defaultBrowserContext().overridePermissions(extensionOrigin, ['microphone']);
+    console.log('✓ Microphone permission granted to', extensionOrigin);
+
     const worker = await workerTarget.worker();
+    worker.on('console', msg => console.log('[SW Log]', msg.text()));
+
+    browser.on('targetcreated', async (t) => {
+      try {
+        if (t.type() === 'other' && t.url().includes('offscreen.html')) {
+          const session = await t.createCDPSession();
+          await session.send('Runtime.enable');
+          session.on('Runtime.consoleAPICalled', (event) => {
+            console.log('[Offscreen Log]', ...event.args.map(a => a.value || a.description));
+          });
+        }
+      } catch (e) {}
+    });
 
     const extensionPage = await browser.newPage();
     await extensionPage.goto(`chrome-extension://${extensionId}/harness.html`, { waitUntil: 'domcontentloaded' });
@@ -231,13 +251,21 @@ async function runRuntimeSecurityTests(server) {
     // Test C: Tab Capture Functional Integrity without host_permissions
     logSection('4. Tab Capture Execution Without Host Permissions');
 
-    // Grant microphone permission to extension origin
-    const extensionOrigin = `chrome-extension://${extensionId}`;
-    await browser.defaultBrowserContext().overridePermissions(extensionOrigin, ['microphone']);
-    console.log('✓ Microphone permission granted to', extensionOrigin);
-
     await page.bringToFront();
     await new Promise(r => setTimeout(r, 1000));
+
+    // Explicitly configure fast duration without hardware microphone spin-up for security verification
+    await worker.evaluate(() => {
+      globalThis.__recordingConfig = {
+        width: 1920,
+        height: 1080,
+        fps: 30,
+        enableMonitorAudio: true,
+        includeMic: false,
+        durationMs: 1500,
+        mimeType: 'video/webm;codecs=vp9,opus'
+      };
+    });
 
     console.log('Invoking native Action click via CDP (user gesture emulation)...');
     const browserClient = await browser.target().createCDPSession();
@@ -248,9 +276,22 @@ async function runRuntimeSecurityTests(server) {
 
     console.log('Waiting for capture result from service worker...');
     let lastResult = null;
-    for (let i = 0; i < 40; i++) {
-      lastResult = await worker.evaluate(() => globalThis.__lastResult);
-      if (lastResult) break;
+    for (let i = 0; i < 60; i++) {
+      const hasResult = await worker.evaluate(() => !!globalThis.__lastResult);
+      if (hasResult) {
+        lastResult = await worker.evaluate(() => {
+          const res = globalThis.__lastResult;
+          const recRes = res?.captureResult?.captureResult?.recordResult || res?.captureResult?.recordResult;
+          return {
+            success: res?.success,
+            tabId: res?.tabId,
+            streamIdLength: res?.streamIdLength,
+            chunksCount: recRes?.chunksCount,
+            totalBytes: recRes?.blobSize || recRes?.totalBytes
+          };
+        });
+        break;
+      }
       await new Promise(r => setTimeout(r, 500));
     }
 
@@ -258,22 +299,14 @@ async function runRuntimeSecurityTests(server) {
       throw new Error('Capture did not complete within timeout');
     }
 
-    const recRes = lastResult.captureResult?.recordResult;
-    console.log('Capture execution result:', {
-      success: lastResult.success,
-      tabId: lastResult.tabId,
-      streamIdLength: lastResult.streamIdLength,
-      chunksCount: recRes?.chunksCount,
-      totalBytes: recRes?.totalBytes,
-      firstChunkBytes: recRes?.firstChunkBytes
-    });
+    console.log('Capture execution result:', lastResult);
 
     if (!lastResult.success) {
       throw new Error(`Capture failed: ${lastResult.error}`);
     }
 
-    if (recRes && recRes.totalBytes < 50000) {
-      throw new Error(`Expected at least 50KB recording, got ${recRes.totalBytes}`);
+    if (lastResult.totalBytes && lastResult.totalBytes < 50000) {
+      throw new Error(`Expected at least 50KB recording, got ${lastResult.totalBytes}`);
     }
 
     console.log('✅ PASS: Tab capture and WebM recording completed successfully with ZERO host permissions!');

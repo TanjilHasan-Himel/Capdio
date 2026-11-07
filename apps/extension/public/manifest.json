@@ -5,6 +5,7 @@
   "description": "Capdio — Capture everything. Miss nothing. Privacy-first screen recording workspace built for capturing high-quality recordings from your browser.",
   "permissions": [
     "tabCapture",
+    "desktopCapture",
     "offscreen",
     "activeTab",
     "storage"

@@ -1,8 +1,8 @@
 // apps/extension/src/offscreen/index.ts
-// Capdio Offscreen Document - Media Sandbox & Recorder Host (OCS-102 / OCS-103)
+// Capdio Offscreen Document - Media Sandbox & Recorder Host (OCS-102 / OCS-103 / OCS-104)
 
-import { registerMessageListener, MessageBusError } from '../shared/message-bus.ts';
-import type { CaptureProfile } from '../shared/types.ts';
+import { registerMessageListener, sendTypedMessage, MessageBusError } from '../shared/message-bus.ts';
+import type { CaptureProfile, CaptureKind } from '../shared/types.ts';
 
 console.log('[Capdio Offscreen] Host initializing...');
 
@@ -53,65 +53,104 @@ function selectBestMimeType(preference: 'webm' | 'mp4' = 'webm'): string {
 
 async function startCaptureAndRecord(payload: {
   sessionId: string;
-  streamId: string;
+  streamId?: string;
+  kind?: CaptureKind;
   profile: CaptureProfile;
 }) {
-  const { sessionId, streamId, profile } = payload;
-  console.log(`[Capdio Offscreen] Starting capture for session: ${sessionId}, streamId: ${streamId}`);
+  const { sessionId, streamId, kind = 'tab', profile } = payload;
+  console.log(`[Capdio Offscreen] Starting capture for session: ${sessionId}, kind: ${kind}, streamId: ${streamId}`);
 
   activeSessionId = sessionId;
   recordedChunks = [];
 
-  // Build Chrome-specific tabCapture getUserMedia constraints
-  const constraints = {
-    audio: profile.tabAudio !== false ? {
-      mandatory: {
-        chromeMediaSource: 'tab',
-        chromeMediaSourceId: streamId
-      }
-    } : false,
-    video: {
-      mandatory: {
-        chromeMediaSource: 'tab',
-        chromeMediaSourceId: streamId,
-        maxWidth: profile.width || 1920,
-        maxHeight: profile.height || 1080,
-        maxFrameRate: profile.fps || 30
-      }
-    }
-  };
-
+  let capturedStream: MediaStream;
   try {
-    const tabStream = await navigator.mediaDevices.getUserMedia(constraints as any);
-    activeStream = tabStream;
+    if (kind === 'screen' || kind === 'window') {
+      const displayConstraints: DisplayMediaStreamOptions = {
+        video: {
+          width: { ideal: profile.width || 1920, max: 3840 },
+          height: { ideal: profile.height || 1080, max: 2160 },
+          frameRate: { ideal: profile.fps || 30, max: 60 }
+        },
+        audio: profile.tabAudio !== false
+      };
+      try {
+        capturedStream = await navigator.mediaDevices.getDisplayMedia(displayConstraints);
+      } catch (dispErr: any) {
+        console.warn('[Offscreen] getDisplayMedia rejected:', dispErr.name, dispErr.message);
+        if (
+          dispErr.name === 'NotAllowedError' ||
+          dispErr.message?.toLowerCase().includes('denied') ||
+          dispErr.message?.toLowerCase().includes('cancel')
+        ) {
+          throw new MessageBusError('E_CAPTURE_DENIED', 'Screen or window capture was cancelled or denied by user');
+        }
+        throw new MessageBusError('E_CAPTURE_DENIED', dispErr.message || 'Display capture failed');
+      }
+    } else {
+      if (!streamId) {
+        throw new MessageBusError('E_CAPTURE_DENIED', 'No streamId provided for tab capture');
+      }
+      const constraints = {
+        audio: profile.tabAudio !== false ? {
+          mandatory: {
+            chromeMediaSource: 'tab',
+            chromeMediaSourceId: streamId
+          }
+        } : false,
+        video: {
+          mandatory: {
+            chromeMediaSource: 'tab',
+            chromeMediaSourceId: streamId,
+            maxWidth: profile.width || 1920,
+            maxHeight: profile.height || 1080,
+            maxFrameRate: profile.fps || 30
+          }
+        }
+      };
+      capturedStream = await navigator.mediaDevices.getUserMedia(constraints as any);
+    }
+
+    activeStream = capturedStream;
 
     // Attach to video sink to ensure active frame delivery
     const videoSink = document.getElementById('captureSink') as HTMLVideoElement;
     if (videoSink) {
-      videoSink.srcObject = tabStream;
+      videoSink.srcObject = capturedStream;
       await videoSink.play().catch(err => console.warn('[Offscreen] videoSink play warning:', err));
     }
 
-    const videoTracks = tabStream.getVideoTracks();
-    const tabAudioTracks = tabStream.getAudioTracks();
+    const videoTracks = capturedStream.getVideoTracks();
+    const sourceAudioTracks = capturedStream.getAudioTracks();
 
     if (videoTracks.length === 0) {
-      throw new MessageBusError('E_CAPTURE_DENIED', 'No video track returned by tab capture');
+      throw new MessageBusError('E_CAPTURE_DENIED', 'No video track returned by capture');
     }
+
+    // Attach onended to video track so user clicking "Stop sharing" automatically stops recording
+    videoTracks[0]!.onended = async () => {
+      console.log('[Capdio Offscreen] Video track ended by user/system, stopping capture...');
+      try {
+        await sendTypedMessage('background', 'STOP_CAPTURE');
+      } catch (stopErr) {
+        console.warn('[Offscreen] auto-stop onended warning:', stopErr);
+      }
+    };
 
     // Audio Graph setup
     let finalAudioTrack: MediaStreamTrack | null = null;
-    if (tabAudioTracks.length > 0 || profile.microphone) {
+    if (sourceAudioTracks.length > 0 || profile.microphone) {
       activeAudioContext = new AudioContext();
       const mixedDestination = activeAudioContext.createMediaStreamDestination();
 
-      if (tabAudioTracks.length > 0) {
-        const tabSource = activeAudioContext.createMediaStreamSource(new MediaStream([tabAudioTracks[0]!]));
+      if (sourceAudioTracks.length > 0) {
+        const sourceAudio = activeAudioContext.createMediaStreamSource(new MediaStream([sourceAudioTracks[0]!]));
         // Route 1: Record mixer
-        tabSource.connect(mixedDestination);
-        // Route 2: Speakers monitor (prevents tab muting!)
-        if (profile.tabAudio) {
-          tabSource.connect(activeAudioContext.destination);
+        sourceAudio.connect(mixedDestination);
+        // Route 2: Speakers monitor ONLY for tab capture to prevent tab muting
+        // (Do NOT route screen/window audio to speakers, as system audio is already audible through speakers)
+        if (kind === 'tab' && profile.tabAudio) {
+          sourceAudio.connect(activeAudioContext.destination);
         }
       }
 

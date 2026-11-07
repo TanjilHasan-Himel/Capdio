@@ -185,6 +185,31 @@
       font-size: 10px;
       color: var(--text-muted);
     }
+
+    /* Accessible Notice / Refusal Banner (OCS-104) */
+    .notice-banner {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      margin-bottom: 12px;
+    }
+    .notice-banner.hidden { display: none !important; }
+    .notice-body { flex: 1; }
+    .notice-body strong { display: block; font-size: 12px; font-weight: 600; color: #f87171; margin-bottom: 2px; }
+    .notice-body p { margin: 0; font-size: 11px; color: #fecaca; line-height: 1.4; }
+    .notice-close {
+      background: transparent;
+      border: none;
+      color: #f87171;
+      font-size: 16px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0 2px;
+    }
   </style>
 </head>
 <body>
@@ -200,6 +225,15 @@
   </header>
 
   <main>
+    <!-- Accessible Notice / Refusal Banner (OCS-104) -->
+    <div id="noticeBanner" class="notice-banner hidden" role="alert" aria-live="assertive">
+      <div class="notice-body">
+        <strong id="noticeTitle">Permission Denied</strong>
+        <p id="noticeMessage">Screen capture was cancelled or denied. Please select a screen or window to start recording.</p>
+      </div>
+      <button id="noticeDismiss" class="notice-close" aria-label="Dismiss notice">&times;</button>
+    </div>
+
     <div id="configSection">
       <div class="control-group">
         <label for="captureTarget">Source</label>

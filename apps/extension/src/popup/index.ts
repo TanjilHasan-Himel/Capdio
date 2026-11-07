@@ -15,6 +15,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const activeSessionInfo = document.getElementById('activeSessionInfo');
   const recordingTimer = document.getElementById('recordingTimer');
   const readyInfo = document.getElementById('readyInfo');
+  const noticeBanner = document.getElementById('noticeBanner');
+  const noticeTitle = document.getElementById('noticeTitle');
+  const noticeMessage = document.getElementById('noticeMessage');
+  const noticeDismiss = document.getElementById('noticeDismiss');
 
   const recordButton = document.getElementById('recordButton') as HTMLButtonElement;
   const pauseResumeButton = document.getElementById('pauseResumeButton') as HTMLButtonElement;
@@ -32,6 +36,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   let timerInterval: any = null;
   let elapsedSeconds = 0;
   let lastRecordingBase64: string | null = null;
+
+  function showNotice(title: string, message: string) {
+    if (noticeBanner && noticeTitle && noticeMessage) {
+      noticeTitle.textContent = title;
+      noticeMessage.textContent = message;
+      noticeBanner.classList.remove('hidden');
+    }
+  }
+
+  function hideNotice() {
+    noticeBanner?.classList.add('hidden');
+  }
+
+  if (noticeDismiss) {
+    noticeDismiss.addEventListener('click', () => {
+      hideNotice();
+    });
+  }
 
   function updateTimerDisplay() {
     if (!recordingTimer) return;
@@ -144,50 +166,78 @@ document.addEventListener('DOMContentLoaded', async () => {
         microphone: micToggle?.checked ?? false
       };
 
-      try {
-        // 1. Resolve target tab
-        const allTabs = await chrome.tabs.query({});
-        let tabToCapture = allTabs.find(t => t.active && t.url && !t.url.startsWith('chrome') && !t.url.includes('popup.html'));
-        if (!tabToCapture) {
-          tabToCapture = allTabs.find(t => t.url && !t.url.startsWith('chrome') && !t.url.includes('popup.html'));
-        }
-        if (!tabToCapture || !tabToCapture.id) {
-          throw new Error('No capturable web tab found');
-        }
+      const selectedKind = captureTarget?.value || 'tab';
+      hideNotice();
 
-        // 2. Acquire ephemeral streamId directly inside user click gesture
-        const streamId = await new Promise<string>((resolve, reject) => {
-          chrome.tabCapture.getMediaStreamId({ targetTabId: tabToCapture!.id }, (id) => {
-            if (chrome.runtime.lastError) {
-              return reject(new Error(chrome.runtime.lastError.message));
-            }
-            if (!id) {
-              return reject(new Error('No streamId returned by tabCapture.getMediaStreamId'));
-            }
-            resolve(id);
+      if (selectedKind === 'screen' || selectedKind === 'window') {
+        // Native Screen or Window Capture via Offscreen getDisplayMedia (OCS-104)
+        try {
+          const res = await sendTypedMessage<any>('background', 'START_CAPTURE', {
+            profile,
+            targetKind: selectedKind,
+            displayLabel: selectedKind === 'screen' ? 'Entire Screen' : 'Application Window'
           });
-        });
 
-        const res = await sendTypedMessage<any>('background', 'START_CAPTURE', {
-          profile,
-          streamId,
-          targetTabId: tabToCapture.id,
-          targetKind: captureTarget?.value || 'tab',
-          displayLabel: tabToCapture.title || tabToCapture.url || 'Active Tab'
-        });
-
-        console.log('[Capdio Popup] START_CAPTURE response:', res);
-        if (res.success && res.data) {
-          startTimer();
-          renderState(res.data.status, res.data.sessionId);
-        } else {
-          alert(`Failed to start capture: ${res.error || 'Unknown error'}`);
+          console.log('[Capdio Popup] START_CAPTURE (screen/window) response:', res);
+          if (res.success && res.data) {
+            startTimer();
+            renderState(res.data.status, res.data.sessionId);
+          } else {
+            showNotice('Permission Refusal / Cancellation', res.error || 'Screen capture was cancelled or denied.');
+            renderState('idle');
+          }
+        } catch (err: any) {
+          console.warn('[Capdio Popup] Screen capture cancelled or denied:', err);
+          showNotice('Permission Refusal / Cancellation', err.message || 'Screen capture was cancelled or denied.');
           renderState('idle');
         }
-      } catch (err: any) {
-        console.error('[Capdio Popup] Capture start failed:', err);
-        alert(`Failed to start capture: ${err.message}`);
-        renderState('idle');
+      } else {
+        // Single Tab Capture (OCS-103)
+        try {
+          // 1. Resolve target tab
+          const allTabs = await chrome.tabs.query({});
+          let tabToCapture = allTabs.find(t => t.active && t.url && !t.url.startsWith('chrome') && !t.url.includes('popup.html'));
+          if (!tabToCapture) {
+            tabToCapture = allTabs.find(t => t.url && !t.url.startsWith('chrome') && !t.url.includes('popup.html'));
+          }
+          if (!tabToCapture || !tabToCapture.id) {
+            throw new Error('No capturable web tab found');
+          }
+
+          // 2. Acquire ephemeral streamId directly inside user click gesture
+          const streamId = await new Promise<string>((resolve, reject) => {
+            chrome.tabCapture.getMediaStreamId({ targetTabId: tabToCapture!.id }, (id) => {
+              if (chrome.runtime.lastError) {
+                return reject(new Error(chrome.runtime.lastError.message));
+              }
+              if (!id) {
+                return reject(new Error('No streamId returned by tabCapture.getMediaStreamId'));
+              }
+              resolve(id);
+            });
+          });
+
+          const res = await sendTypedMessage<any>('background', 'START_CAPTURE', {
+            profile,
+            streamId,
+            targetTabId: tabToCapture.id,
+            targetKind: 'tab',
+            displayLabel: tabToCapture.title || tabToCapture.url || 'Active Tab'
+          });
+
+          console.log('[Capdio Popup] START_CAPTURE (tab) response:', res);
+          if (res.success && res.data) {
+            startTimer();
+            renderState(res.data.status, res.data.sessionId);
+          } else {
+            showNotice('Capture Failed', res.error || 'Unknown error');
+            renderState('idle');
+          }
+        } catch (err: any) {
+          console.error('[Capdio Popup] Tab capture start failed:', err);
+          showNotice('Capture Failed', err.message || 'Tab capture failed');
+          renderState('idle');
+        }
       }
     });
   }
