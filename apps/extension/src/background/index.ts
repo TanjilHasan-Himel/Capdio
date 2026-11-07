@@ -443,6 +443,29 @@ registerMessageListener('background', {
     return { session };
   },
 
+  LIST_SESSIONS: async () => {
+    const sessions = await sessionRegistry.listSessions();
+    return { sessions };
+  },
+
+  DELETE_SESSION: async (msg: any) => {
+    if (!msg.payload?.sessionId) {
+      throw new MessageBusError('E_INVALID_MESSAGE', 'Missing sessionId in DELETE_SESSION payload');
+    }
+    const success = await sessionRegistry.deleteSession(msg.payload.sessionId);
+    return { success, sessionId: msg.payload.sessionId };
+  },
+
+  UPDATE_SESSION_METADATA: async (msg: any) => {
+    if (!msg.payload?.sessionId) {
+      throw new MessageBusError('E_INVALID_MESSAGE', 'Missing sessionId in UPDATE_SESSION_METADATA payload');
+    }
+    const session = await sessionRegistry.updateSessionMetadata(msg.payload.sessionId, {
+      title: msg.payload.title
+    });
+    return { session };
+  },
+
   ENSURE_OFFSCREEN: async () => {
     await ensureOffscreenDocument();
     return { hasDocument: true };

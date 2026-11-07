@@ -141,7 +141,7 @@ const profile = {
 };
 
 const session1 = await registry.createSession(profile);
-assert.strictEqual(session1.schemaVersion, 1);
+assert.strictEqual(session1.schemaVersion, 2);
 assert.ok(session1.sessionId && session1.sessionId.length > 5);
 assert.strictEqual(session1.status, 'idle');
 assert.strictEqual(session1.segments.length, 0);

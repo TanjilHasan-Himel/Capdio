@@ -108,6 +108,10 @@ export interface RecordingSegment {
   digest?: string;
 }
 
+export const CURRENT_MANIFEST_SCHEMA_VERSION = 2;
+
+export type StorageBackend = 'memory' | 'indexeddb' | 'opfs';
+
 export interface SessionManifest {
   schemaVersion: number;
   sessionId: string;
@@ -116,6 +120,12 @@ export interface SessionManifest {
   profile: CaptureProfile;
   sources: SourceInfo[];
   segments: RecordingSegment[];
+  title?: string;
+  durationMs?: number;
+  totalBytes?: number;
+  finalizedAt?: string;
+  storageBackend?: StorageBackend;
+  isRecoverable?: boolean;
   errorCode?: ErrorCode;
 }
 
@@ -205,6 +215,25 @@ export interface GetSessionMessage extends BaseMessage {
   };
 }
 
+export interface ListSessionsMessage extends BaseMessage {
+  action: 'LIST_SESSIONS';
+}
+
+export interface DeleteSessionMessage extends BaseMessage {
+  action: 'DELETE_SESSION';
+  payload: {
+    sessionId: string;
+  };
+}
+
+export interface UpdateSessionMetadataMessage extends BaseMessage {
+  action: 'UPDATE_SESSION_METADATA';
+  payload: {
+    sessionId: string;
+    title?: string;
+  };
+}
+
 export interface OffscreenStartMessage extends BaseMessage {
   target: 'offscreen';
   action: 'OFFSCREEN_START';
@@ -268,6 +297,9 @@ export type ExtensionMessage =
   | StopCaptureMessage
   | ResetCaptureMessage
   | GetSessionMessage
+  | ListSessionsMessage
+  | DeleteSessionMessage
+  | UpdateSessionMetadataMessage
   | OffscreenStartMessage
   | OffscreenPauseMessage
   | OffscreenResumeMessage
