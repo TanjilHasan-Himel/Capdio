@@ -189,3 +189,4 @@ console.log('✅ PASS: Session Registry creates, updates, and persists manifests
 console.log('\n=============================================');
 console.log('🎉 ALL STATE MACHINE & REGISTRY TESTS PASSED!');
 console.log('=============================================\n');
+

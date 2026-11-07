@@ -2,6 +2,8 @@
 // Automated Integration Smoke Test for Capdio Production MV3 App Skeleton (OCS-101)
 
 import puppeteer from 'puppeteer-core';
+import http from 'http';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -10,10 +12,26 @@ const __dirname = path.dirname(__filename);
 
 const CHROME_PATH = 'C:\\Users\\Himel\\.cache\\puppeteer\\chrome\\win64-152.0.7977.42\\chrome-win64\\chrome.exe';
 const EXTENSION_DIST = path.resolve(__dirname, '..', 'apps', 'extension', 'dist');
+const SMOKE_PORT = 3458;
+
+function startSmokeServer() {
+  return new Promise((resolve) => {
+    const fixtureHtml = fs.readFileSync(path.join(__dirname, 'fixtures', 'test-page.html'), 'utf8');
+    const server = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(fixtureHtml);
+    });
+    server.listen(SMOKE_PORT, () => {
+      console.log(`✓ Smoke fixture server running at http://127.0.0.1:${SMOKE_PORT}`);
+      resolve(server);
+    });
+  });
+}
 
 console.log('🚀 Running Capdio MV3 App Skeleton Integration Smoke Test (OCS-101)...');
 
 async function runSmokeTest() {
+  const server = await startSmokeServer();
   const browser = await puppeteer.launch({
     executablePath: CHROME_PATH,
     headless: false,
@@ -21,7 +39,8 @@ async function runSmokeTest() {
       `--disable-extensions-except=${EXTENSION_DIST}`,
       `--load-extension=${EXTENSION_DIST}`,
       '--no-sandbox',
-      '--disable-setuid-sandbox'
+      '--disable-setuid-sandbox',
+      '--autoplay-policy=no-user-gesture-required'
     ],
     defaultViewport: { width: 1280, height: 720 }
   });
@@ -101,9 +120,31 @@ async function runSmokeTest() {
     }
     console.log('✅ PASS: Initial RecordStatus verified as IDLE.');
 
-    // 4. Test FSM Transitions & Session Registry (OCS-102)
+    // 4. Test FSM Transitions & Session Registry (OCS-102 & OCS-103)
     console.log('4. Testing FSM Transitions & Session Registry (START_CAPTURE, STOP_CAPTURE, RESET_CAPTURE)...');
+    
+    // Open target page to capture and invoke activeTab
+    const targetPage = await browser.newPage();
+    await targetPage.goto(`http://127.0.0.1:${SMOKE_PORT}/test-page.html`, { waitUntil: 'load' });
+    await targetPage.bringToFront();
+    const browserClient = await browser.target().createCDPSession();
+    await browserClient.send('Extensions.triggerAction', {
+      id: extensionId,
+      targetId: targetPage._tabId
+    });
+
     const startRes = await popupPage.evaluate(async () => {
+      const allTabs = await chrome.tabs.query({});
+      const targetTab = allTabs.find(t => t.url && t.url.includes('test-page.html'));
+      if (!targetTab || !targetTab.id) throw new Error('Target tab not found');
+
+      const streamId = await new Promise((resolve, reject) => {
+        chrome.tabCapture.getMediaStreamId({ targetTabId: targetTab.id }, (id) => {
+          if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
+          resolve(id);
+        });
+      });
+
       return new Promise((resolve) => {
         chrome.runtime.sendMessage({
           id: 'test_msg_start',
@@ -111,6 +152,8 @@ async function runSmokeTest() {
           action: 'START_CAPTURE',
           timestamp: Date.now(),
           payload: {
+            streamId,
+            targetTabId: targetTab.id,
             profile: {
               width: 1920,
               height: 1080,
@@ -125,11 +168,11 @@ async function runSmokeTest() {
     });
 
     console.log('START_CAPTURE response:', startRes);
-    if (!startRes || !startRes.success || startRes.data?.status !== 'preparing') {
-      throw new Error(`Expected preparing status, got: ${JSON.stringify(startRes)}`);
+    if (!startRes || !startRes.success || startRes.data?.status !== 'recording') {
+      throw new Error(`Expected recording status, got: ${JSON.stringify(startRes)}`);
     }
     const sessionId = startRes.data.sessionId;
-    console.log(`✅ PASS: FSM transitioned to PREPARING. Session ID: ${sessionId}`);
+    console.log(`✅ PASS: FSM transitioned to RECORDING. Session ID: ${sessionId}`);
 
     // Verify status via GET_STATUS
     const activeStatusRes = await popupPage.evaluate(async () => {
@@ -143,7 +186,7 @@ async function runSmokeTest() {
       });
     });
     console.log('Active GET_STATUS response:', activeStatusRes);
-    if (activeStatusRes.data?.status !== 'preparing' || activeStatusRes.data?.activeSessionId !== sessionId) {
+    if (activeStatusRes.data?.status !== 'recording' || activeStatusRes.data?.activeSessionId !== sessionId) {
       throw new Error(`Active status mismatch: ${JSON.stringify(activeStatusRes)}`);
     }
     console.log('✅ PASS: Service Worker preserves active session manifest and FSM state.');
@@ -225,6 +268,7 @@ async function runSmokeTest() {
     return { success: true };
   } finally {
     await browser.close();
+    server.close();
   }
 }
 

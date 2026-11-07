@@ -97,6 +97,9 @@ export interface StartCaptureMessage extends BaseMessage {
   action: 'START_CAPTURE';
   payload: {
     targetTabId?: number;
+    streamId?: string;
+    displayLabel?: string;
+    targetKind?: string;
     profile: CaptureProfile;
   };
 }
@@ -143,11 +146,21 @@ export interface OffscreenStartMessage extends BaseMessage {
   };
 }
 
+export interface OffscreenPauseMessage extends BaseMessage {
+  target: 'offscreen';
+  action: 'OFFSCREEN_PAUSE';
+}
+
+export interface OffscreenResumeMessage extends BaseMessage {
+  target: 'offscreen';
+  action: 'OFFSCREEN_RESUME';
+}
+
 export interface OffscreenStopMessage extends BaseMessage {
   target: 'offscreen';
   action: 'OFFSCREEN_STOP';
-  payload: {
-    sessionId: string;
+  payload?: {
+    sessionId?: string;
   };
 }
 
@@ -161,6 +174,8 @@ export type ExtensionMessage =
   | ResetCaptureMessage
   | GetSessionMessage
   | OffscreenStartMessage
+  | OffscreenPauseMessage
+  | OffscreenResumeMessage
   | OffscreenStopMessage;
 
 export interface MessageResponse<T = unknown> {

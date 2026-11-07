@@ -1,9 +1,9 @@
 // apps/extension/src/background/index.ts
-// Capdio MV3 Service Worker Entrypoint & State Coordinator (OCS-101 / OCS-102)
+// Capdio MV3 Service Worker Entrypoint & State Coordinator (OCS-101 / OCS-102 / OCS-103)
 
-import { registerMessageListener, MessageBusError } from '../shared/message-bus';
-import { RecordingStateMachine } from './state-machine';
-import { SessionRegistry } from './session-registry';
+import { registerMessageListener, sendTypedMessage, MessageBusError } from '../shared/message-bus.ts';
+import { RecordingStateMachine } from './state-machine.ts';
+import { SessionRegistry } from './session-registry.ts';
 import type {
   StartCaptureMessage,
   PauseCaptureMessage,
@@ -11,7 +11,7 @@ import type {
   StopCaptureMessage,
   GetSessionMessage,
   RecordStatus
-} from '../shared/types';
+} from '../shared/types.ts';
 
 console.log('[Capdio SW] Service Worker script evaluating...');
 
@@ -63,6 +63,35 @@ stateMachine.onStateChange((newStatus, prevStatus, reason) => {
   console.log(`[Capdio FSM] Transition: ${prevStatus} -> ${newStatus} (${reason || 'no reason'})`);
   updateActionBadge(newStatus);
 });
+
+// Helper: Resolve the target tab to capture
+async function resolveTargetTabId(requestedTabId?: number): Promise<number | undefined> {
+  if (typeof requestedTabId === 'number') {
+    return requestedTabId;
+  }
+  const tabs = await chrome.tabs.query({ active: true });
+  const webTab = tabs.find(t => t.url && !t.url.startsWith('chrome') && !t.url.startsWith('chrome-extension'));
+  return webTab?.id ?? tabs[0]?.id;
+}
+
+// Helper: Acquire ephemeral stream ID via chrome.tabCapture
+async function getTabMediaStreamId(targetTabId?: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const options: chrome.tabCapture.GetMediaStreamOptions = {};
+    if (typeof targetTabId === 'number') {
+      options.targetTabId = targetTabId;
+    }
+    chrome.tabCapture.getMediaStreamId(options, (streamId) => {
+      if (chrome.runtime.lastError) {
+        return reject(new MessageBusError('E_CAPTURE_DENIED', chrome.runtime.lastError.message || 'tabCapture failed'));
+      }
+      if (!streamId) {
+        return reject(new MessageBusError('E_CAPTURE_DENIED', 'No streamId returned by tabCapture'));
+      }
+      resolve(streamId);
+    });
+  });
+}
 
 // Ensure offscreen document exists
 export async function ensureOffscreenDocument(): Promise<void> {
@@ -134,15 +163,55 @@ registerMessageListener('background', {
       microphone: false
     };
 
+    const targetTabId = await resolveTargetTabId(msg.payload?.targetTabId);
     const session = await sessionRegistry.createSession(profile);
     stateMachine.requestStart(session.sessionId);
     stateMachine.markPreparing();
 
-    return {
-      sessionId: session.sessionId,
-      status: stateMachine.currentStatus,
-      session
-    };
+    try {
+      // 1. Acquire ephemeral 24-char cryptographic token from chrome.tabCapture (if not provided by caller)
+      const streamId = msg.payload?.streamId || (await getTabMediaStreamId(targetTabId));
+
+      // 2. Ensure Offscreen Host exists
+      await ensureOffscreenDocument();
+
+      // 3. Delegate to Offscreen Document for Web Audio & MediaRecorder
+      const offscreenRes = await sendTypedMessage<any>('offscreen', 'OFFSCREEN_START', {
+        sessionId: session.sessionId,
+        streamId,
+        profile
+      });
+
+      if (!offscreenRes.success) {
+        throw new MessageBusError(
+          offscreenRes.errorCode || 'E_CAPTURE_DENIED',
+          offscreenRes.error || 'Offscreen capture failed to start'
+        );
+      }
+
+      stateMachine.markRecording();
+      await sessionRegistry.updateSessionStatus(session.sessionId, 'recording');
+      await sessionRegistry.addSource(session.sessionId, {
+        sourceId: streamId.substring(0, 12),
+        kind: 'tab',
+        tabId: targetTabId,
+        displayLabel: 'Active Tab',
+        authorizedAt: new Date().toISOString(),
+        actualWidth: profile.width,
+        actualHeight: profile.height,
+        actualFps: profile.fps
+      });
+
+      return {
+        sessionId: session.sessionId,
+        status: stateMachine.currentStatus,
+        offscreenResult: offscreenRes.data
+      };
+    } catch (err: any) {
+      stateMachine.markError(err.code || 'E_CAPTURE_DENIED', err.message);
+      await sessionRegistry.updateSessionStatus(session.sessionId, 'error', err.code || 'E_CAPTURE_DENIED');
+      throw err;
+    }
   },
 
   PAUSE_CAPTURE: async (_msg: PauseCaptureMessage) => {
@@ -157,6 +226,7 @@ registerMessageListener('background', {
     }
 
     stateMachine.pause();
+    await sendTypedMessage('offscreen', 'OFFSCREEN_PAUSE');
     if (stateMachine.activeSessionId) {
       await sessionRegistry.updateSessionStatus(stateMachine.activeSessionId, 'paused');
     }
@@ -179,6 +249,7 @@ registerMessageListener('background', {
     }
 
     stateMachine.resume();
+    await sendTypedMessage('offscreen', 'OFFSCREEN_RESUME');
     if (stateMachine.activeSessionId) {
       await sessionRegistry.updateSessionStatus(stateMachine.activeSessionId, 'recording');
     }
@@ -200,8 +271,23 @@ registerMessageListener('background', {
     const sessionId = stateMachine.activeSessionId || msg.payload?.sessionId;
     stateMachine.stop();
 
+    let offscreenRes: any = null;
+    try {
+      offscreenRes = await sendTypedMessage<any>('offscreen', 'OFFSCREEN_STOP');
+    } catch (stopErr) {
+      console.warn('[Capdio SW] offscreen stop warning:', stopErr);
+    }
+
     if (sessionId) {
       await sessionRegistry.updateSessionStatus(sessionId, 'finalizing');
+      if (offscreenRes?.data) {
+        await sessionRegistry.addSegment(sessionId, {
+          partId: 'part_001',
+          sourceId: 'tab',
+          startMs: 0,
+          bytes: offscreenRes.data.totalBytes || 0
+        });
+      }
       stateMachine.markReady();
       await sessionRegistry.updateSessionStatus(sessionId, 'ready');
     } else {
@@ -211,7 +297,8 @@ registerMessageListener('background', {
     return {
       status: stateMachine.currentStatus,
       sessionId,
-      session: sessionId ? await sessionRegistry.getSession(sessionId) : null
+      session: sessionId ? await sessionRegistry.getSession(sessionId) : null,
+      recordingResult: offscreenRes?.data
     };
   },
 
@@ -236,6 +323,30 @@ registerMessageListener('background', {
   CLOSE_OFFSCREEN: async () => {
     await closeOffscreenDocument();
     return { hasDocument: false };
+  }
+});
+
+// Action Click Fallback (for testing / direct invocation)
+chrome.action.onClicked.addListener(async (tab) => {
+  console.log('[Capdio SW] Action clicked on tab:', tab.id, tab.url);
+  try {
+    if (stateMachine.isRecording()) {
+      await sendTypedMessage('background', 'STOP_CAPTURE');
+    } else if (stateMachine.isIdle()) {
+      await sendTypedMessage('background', 'START_CAPTURE', {
+        targetTabId: tab.id,
+        profile: {
+          width: 1920,
+          height: 1080,
+          fps: 30,
+          mimePreference: 'webm',
+          tabAudio: true,
+          microphone: false
+        }
+      });
+    }
+  } catch (err) {
+    console.error('[Capdio SW] Action click error:', err);
   }
 });
 

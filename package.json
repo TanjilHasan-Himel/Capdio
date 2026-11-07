@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test:unit": "node tests/unit/message-bus.test.js && node tests/unit/state-machine.test.js",
     "test:smoke": "node test-harness/test-apps-extension-smoke.js",
+    "test:tab-capture": "node test-harness/test-apps-tab-capture.js",
     "test:security": "node test-harness/test-security-boundaries.js",
     "spike:ocs-002": "node test-harness/test-action-click.js",
     "benchmark:ocs-003": "node test-harness/test-60s-harness.js",
