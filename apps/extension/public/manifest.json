@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Capdio — Screen Recorder",
+  "version": "0.1.0",
+  "description": "Capdio — Capture everything. Miss nothing. Privacy-first screen recording workspace built for capturing high-quality recordings from your browser.",
+  "permissions": [
+    "tabCapture",
+    "offscreen",
+    "activeTab",
+    "storage"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Capdio — Screen Recorder"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self';"
+  }
+}

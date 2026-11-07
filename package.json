@@ -7,10 +7,14 @@
     "doc": "docs"
   },
   "scripts": {
-    "test": "npm run test:security",
+    "build": "node scripts/build-extension.js",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "node tests/unit/message-bus.test.js",
+    "test:smoke": "node test-harness/test-apps-extension-smoke.js",
     "test:security": "node test-harness/test-security-boundaries.js",
     "spike:ocs-002": "node test-harness/test-action-click.js",
-    "benchmark:ocs-003": "node test-harness/test-60s-harness.js"
+    "benchmark:ocs-003": "node test-harness/test-60s-harness.js",
+    "test": "npm run typecheck && npm run test:unit && npm run test:smoke"
   },
   "keywords": [
     "screen-recorder",
@@ -24,6 +28,9 @@
   "license": "MIT",
   "type": "module",
   "devDependencies": {
-    "puppeteer-core": "^25.16.0"
+    "@types/chrome": "^0.3.7",
+    "esbuild": "^0.28.2",
+    "puppeteer-core": "^25.16.0",
+    "typescript": "^7.0.2"
   }
 }
