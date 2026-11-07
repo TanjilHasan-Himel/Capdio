@@ -570,8 +570,60 @@
           <video id="videoPlayer" controls playsinline></video>
         </div>
         <div id="previewDetails" class="preview-details">-</div>
+
+        <!-- In / Out Trim Controls (OCS-303) -->
+        <div id="trimControls" class="trim-section" style="margin: 12px 0; padding: 12px; background: #0b101c; border: 1px solid var(--border); border-radius: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase;">Trim Range</span>
+            <span id="trimDurationLabel" style="font-size: 11px; font-family: monospace; color: #60a5fa;">00:00 - 00:00 (0.0s)</span>
+          </div>
+          
+          <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
+            <div style="flex: 1;">
+              <label for="trimInInput" style="display: block; font-size: 10px; color: var(--text-muted); margin-bottom: 2px;">Start (In):</label>
+              <div style="display: flex; gap: 4px;">
+                <input type="number" id="trimInInput" min="0" step="0.1" value="0.0" style="width: 100%; padding: 4px 6px; font-size: 11px; background: #131b2e; border: 1px solid var(--border); color: var(--text); border-radius: 4px;">
+                <button id="setTrimInBtn" class="btn-sm" style="font-size: 10px; padding: 4px 6px; background: #1e293b; color: #cbd5e1; border-radius: 4px;" title="Set Start to current playhead">In</button>
+              </div>
+            </div>
+
+            <div style="flex: 1;">
+              <label for="trimOutInput" style="display: block; font-size: 10px; color: var(--text-muted); margin-bottom: 2px;">End (Out):</label>
+              <div style="display: flex; gap: 4px;">
+                <input type="number" id="trimOutInput" min="0" step="0.1" value="0.0" style="width: 100%; padding: 4px 6px; font-size: 11px; background: #131b2e; border: 1px solid var(--border); color: var(--text); border-radius: 4px;">
+                <button id="setTrimOutBtn" class="btn-sm" style="font-size: 10px; padding: 4px 6px; background: #1e293b; color: #cbd5e1; border-radius: 4px;" title="Set End to current playhead">Out</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Trim Slider Bar -->
+          <div style="position: relative; width: 100%; height: 6px; background: #1e293b; border-radius: 3px; margin: 8px 0; overflow: hidden;">
+            <div id="trimVisualRange" style="position: absolute; left: 0%; width: 100%; height: 100%; background: #3b82f6; border-radius: 3px;"></div>
+          </div>
+
+          <!-- Trim Export Button -->
+          <button id="exportTrimBtn" class="btn-sm" style="width: 100%; background: #6366f1; color: white; padding: 7px; font-size: 11px; border-radius: 6px; margin-top: 4px;">
+            ✂ Export Trimmed Video
+          </button>
+          
+          <!-- Trim Progress and Error Indicators -->
+          <div id="trimProgressContainer" class="hidden" style="margin-top: 8px;">
+            <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); margin-bottom: 2px;">
+              <span id="trimProgressStatus">Exporting slice...</span>
+              <span id="trimProgressPercent">0%</span>
+            </div>
+            <div style="width: 100%; height: 4px; background: #1e293b; border-radius: 2px; overflow: hidden;">
+              <div id="trimProgressBar" style="width: 0%; height: 100%; background: #6366f1; transition: width 0.1s ease;"></div>
+            </div>
+          </div>
+
+          <div id="trimErrorBanner" class="hidden" style="margin-top: 6px; padding: 6px 8px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 4px; color: #f87171; font-size: 10px;">
+            Invalid trim range.
+          </div>
+        </div>
+
         <div class="preview-actions">
-          <button id="previewDownloadBtn" class="btn-download" style="flex: 1;">Download Video</button>
+          <button id="previewDownloadBtn" class="btn-download" style="flex: 1;">Download Full Video</button>
         </div>
       </div>
     </div>

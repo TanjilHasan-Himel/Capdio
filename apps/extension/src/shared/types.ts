@@ -474,3 +474,39 @@ export interface MessageResponse<T = unknown> {
   error?: string;
 }
 
+export interface TrimRange {
+  inSeconds: number;
+  outSeconds: number;
+  durationSeconds: number;
+}
+
+export function validateTrimBounds(
+  inSec: number,
+  outSec: number,
+  totalDurationSec: number
+): { valid: boolean; error?: string; range?: TrimRange } {
+  const safeTotal = Math.max(0.5, totalDurationSec);
+  const safeIn = Math.max(0, inSec);
+  const safeOut = Math.min(safeTotal, outSec);
+
+  if (isNaN(inSec) || isNaN(outSec)) {
+    return { valid: false, error: 'Start and end trim points must be valid numbers.' };
+  }
+  if (safeIn >= safeOut) {
+    return { valid: false, error: 'Start time (In) must be strictly less than end time (Out).' };
+  }
+  const diff = safeOut - safeIn;
+  if (diff < 0.5) {
+    return { valid: false, error: 'Minimum trim duration is 0.5 seconds.' };
+  }
+
+  return {
+    valid: true,
+    range: {
+      inSeconds: parseFloat(safeIn.toFixed(2)),
+      outSeconds: parseFloat(safeOut.toFixed(2)),
+      durationSeconds: parseFloat(diff.toFixed(2))
+    }
+  };
+}
+

@@ -173,6 +173,13 @@ export async function executeStopCapture(reason = 'user_stop'): Promise<any> {
     try {
       const sessionId = stateMachine.activeSessionId;
       stateMachine.stop();
+
+      // Capture wall-clock elapsed ms BEFORE resetting timing state
+      const recordingElapsedMs =
+        recordingStartTime != null
+          ? Math.max(0, (pausedStartTime || Date.now()) - recordingStartTime - totalPausedMs)
+          : 0;
+
       recordingStartTime = null;
       pausedStartTime = null;
       totalPausedMs = 0;
@@ -193,10 +200,16 @@ export async function executeStopCapture(reason = 'user_stop'): Promise<any> {
       if (sessionId) {
         await sessionRegistry.updateSessionStatus(sessionId, 'finalizing');
         if (offscreenRes?.data && offscreenRes.data.totalBytes > 0) {
+          // Use offscreen-reported durationMs when available, fall back to wall-clock measurement
+          const segDurationMs = (typeof offscreenRes.data.durationMs === 'number' && offscreenRes.data.durationMs > 0)
+            ? offscreenRes.data.durationMs
+            : Math.round(recordingElapsedMs);
+
           await sessionRegistry.addSegment(sessionId, {
             partId: 'part_001',
             sourceId: 'tab',
             startMs: 0,
+            durationMs: segDurationMs,
             bytes: offscreenRes.data.totalBytes || 0
           });
           const errorInfo = reason === 'low_storage' ? {

@@ -3,7 +3,7 @@
 // Provides offline recording browsing, playback, title renaming, deletion, and file export.
 
 import { sendTypedMessage } from '../shared/message-bus.ts';
-import type { SessionManifest } from '../shared/types.ts';
+import { type SessionManifest, validateTrimBounds } from '../shared/types.ts';
 
 console.log('[Capdio Library] Initializing Local Library...');
 
@@ -27,6 +27,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   const previewDownloadBtn = document.getElementById('previewDownloadBtn') as HTMLButtonElement;
   const videoPlayer = document.getElementById('videoPlayer') as HTMLVideoElement;
   const closePreviewBtn = document.getElementById('closePreviewBtn');
+
+  // Trim controls & indicators (OCS-303)
+  const trimInInput = document.getElementById('trimInInput') as HTMLInputElement;
+  const trimOutInput = document.getElementById('trimOutInput') as HTMLInputElement;
+  const setTrimInBtn = document.getElementById('setTrimInBtn') as HTMLButtonElement;
+  const setTrimOutBtn = document.getElementById('setTrimOutBtn') as HTMLButtonElement;
+  const trimDurationLabel = document.getElementById('trimDurationLabel');
+  const trimVisualRange = document.getElementById('trimVisualRange');
+  const exportTrimBtn = document.getElementById('exportTrimBtn') as HTMLButtonElement;
+  const trimProgressContainer = document.getElementById('trimProgressContainer');
+  const trimProgressBar = document.getElementById('trimProgressBar');
+  const trimProgressStatus = document.getElementById('trimProgressStatus');
+  const trimProgressPercent = document.getElementById('trimProgressPercent');
+  const trimErrorBanner = document.getElementById('trimErrorBanner');
 
   // Rename modal elements
   const renameModal = document.getElementById('renameModal');
@@ -162,12 +176,321 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (previewDownloadBtn) {
         previewDownloadBtn.textContent = `Download ${isMp4 ? 'MP4' : 'WebM'} (${sizeStr})`;
       }
+
+      // Initialize trim range based on duration (OCS-303)
+      // NOTE: MediaRecorder WebM blobs report duration=Infinity since they lack a SeekHead.
+      // Always prefer manifest durationMs; fall back to finite video.duration only if manifest is absent.
+      const setupTrimRange = () => {
+        const vidDur = videoPlayer?.duration;
+        const isFiniteVideoDur = vidDur != null && !isNaN(vidDur) && isFinite(vidDur) && vidDur > 0;
+        const manifestDurSec = session.durationMs ? session.durationMs / 1000 : 0;
+        // Prefer manifest (always reliable) over Infinity from video element
+        const totalDurationSec = manifestDurSec > 0 ? manifestDurSec : (isFiniteVideoDur ? vidDur : 0);
+
+        const outStr = totalDurationSec > 0 ? totalDurationSec.toFixed(1) : '0.0';
+        if (trimInInput) {
+          trimInInput.value = '0.0';
+          trimInInput.setAttribute('max', outStr);
+        }
+        if (trimOutInput) {
+          trimOutInput.value = outStr;
+          trimOutInput.setAttribute('max', outStr);
+        }
+        updateTrimUI();
+      };
+
+      // Always listen for loadedmetadata in case metadata arrives after play() is called
+      videoPlayer.addEventListener('loadedmetadata', setupTrimRange, { once: true });
+
+      // Also attempt immediately if metadata is already available (readyState >= HAVE_METADATA)
+      if (videoPlayer.readyState >= 1) {
+        setupTrimRange();
+      }
     } catch (err: any) {
       console.error('[Capdio Library] Preview error:', err);
       if (previewDetails) {
         previewDetails.textContent = `Preview unavailable: ${err.message || 'Media not found'}`;
       }
     }
+  }
+
+  function getActiveTotalDuration(): number {
+    const sess = allSessions.find(s => s.sessionId === activePreviewSessionId);
+    if (videoPlayer && !isNaN(videoPlayer.duration) && isFinite(videoPlayer.duration) && videoPlayer.duration > 0) {
+      return videoPlayer.duration;
+    }
+    if (sess?.durationMs && sess.durationMs > 0) {
+      return sess.durationMs / 1000;
+    }
+    return 10.0;
+  }
+
+  function updateTrimUI() {
+    if (!trimInInput || !trimOutInput) return;
+    const totalDur = getActiveTotalDuration();
+    const inVal = parseFloat(trimInInput.value);
+    const outVal = parseFloat(trimOutInput.value);
+
+    const validation = validateTrimBounds(inVal, outVal, totalDur);
+
+    if (trimVisualRange) {
+      if (!isNaN(inVal) && !isNaN(outVal) && totalDur > 0) {
+        const safeIn = Math.max(0, Math.min(totalDur, inVal));
+        const safeOut = Math.max(0, Math.min(totalDur, outVal));
+        const leftPct = (Math.min(safeIn, safeOut) / totalDur) * 100;
+        const widthPct = (Math.abs(safeOut - safeIn) / totalDur) * 100;
+        trimVisualRange.style.left = `${leftPct.toFixed(1)}%`;
+        trimVisualRange.style.width = `${widthPct.toFixed(1)}%`;
+      }
+    }
+
+    if (!validation.valid) {
+      if (trimErrorBanner) {
+        trimErrorBanner.textContent = validation.error || 'Invalid trim range';
+        trimErrorBanner.classList.remove('hidden');
+      }
+      if (trimDurationLabel) {
+        trimDurationLabel.textContent = `${formatDuration((inVal || 0) * 1000)} - ${formatDuration((outVal || 0) * 1000)} (Invalid)`;
+        trimDurationLabel.style.color = '#f87171';
+      }
+      if (exportTrimBtn) {
+        exportTrimBtn.disabled = true;
+        exportTrimBtn.style.opacity = '0.5';
+        exportTrimBtn.style.cursor = 'not-allowed';
+      }
+    } else {
+      if (trimErrorBanner) {
+        trimErrorBanner.classList.add('hidden');
+      }
+      if (trimDurationLabel) {
+        const durSec = validation.range!.durationSeconds;
+        trimDurationLabel.textContent = `${formatDuration(validation.range!.inSeconds * 1000)} - ${formatDuration(validation.range!.outSeconds * 1000)} (${durSec.toFixed(1)}s)`;
+        trimDurationLabel.style.color = '#60a5fa';
+      }
+      if (exportTrimBtn) {
+        exportTrimBtn.disabled = false;
+        exportTrimBtn.style.opacity = '1';
+        exportTrimBtn.style.cursor = 'pointer';
+      }
+    }
+  }
+
+  if (setTrimInBtn) {
+    setTrimInBtn.addEventListener('click', () => {
+      if (trimInInput && videoPlayer) {
+        trimInInput.value = Math.max(0, videoPlayer.currentTime).toFixed(1);
+        updateTrimUI();
+      }
+    });
+  }
+
+  if (setTrimOutBtn) {
+    setTrimOutBtn.addEventListener('click', () => {
+      if (trimOutInput && videoPlayer) {
+        const totalDur = getActiveTotalDuration();
+        trimOutInput.value = Math.min(totalDur, videoPlayer.currentTime).toFixed(1);
+        updateTrimUI();
+      }
+    });
+  }
+
+  trimInInput?.addEventListener('input', updateTrimUI);
+  trimOutInput?.addEventListener('input', updateTrimUI);
+
+  let isExportingTrim = false;
+
+  async function exportTrimmedVideo(): Promise<{ success: boolean; filename?: string; sizeBytes?: number; error?: string }> {
+    if (isExportingTrim) return { success: false, error: 'Export already in progress' };
+    const sess = allSessions.find(s => s.sessionId === activePreviewSessionId);
+    if (!sess) {
+      alert('No active recording selected for trim export.');
+      return { success: false, error: 'No active session' };
+    }
+
+    const totalDur = getActiveTotalDuration();
+    const inVal = parseFloat(trimInInput?.value || '0');
+    const outVal = parseFloat(trimOutInput?.value || '0');
+    const validation = validateTrimBounds(inVal, outVal, totalDur);
+
+    if (!validation.valid || !validation.range) {
+      if (trimErrorBanner) {
+        trimErrorBanner.textContent = validation.error || 'Please correct trim points before exporting.';
+        trimErrorBanner.classList.remove('hidden');
+      }
+      return { success: false, error: validation.error };
+    }
+
+    const { inSeconds, outSeconds, durationSeconds } = validation.range;
+    isExportingTrim = true;
+
+    if (exportTrimBtn) {
+      exportTrimBtn.disabled = true;
+      exportTrimBtn.textContent = '⏳ Processing Video Slice...';
+    }
+    if (trimProgressContainer) trimProgressContainer.classList.remove('hidden');
+    if (trimProgressBar) trimProgressBar.style.width = '0%';
+    if (trimProgressPercent) trimProgressPercent.textContent = '0%';
+    if (trimProgressStatus) trimProgressStatus.textContent = 'Preparing media stream...';
+    if (trimErrorBanner) trimErrorBanner.classList.add('hidden');
+
+    let sliceVideo: HTMLVideoElement | null = null;
+    let recorder: MediaRecorder | null = null;
+    let progressTimer: any = null;
+    let timeoutGuard: any = null;
+
+    try {
+      const media = await loadRecordingBlob(sess.sessionId);
+
+      // Create offscreen slice video element
+      sliceVideo = document.createElement('video');
+      sliceVideo.style.position = 'fixed';
+      sliceVideo.style.top = '-9999px';
+      sliceVideo.style.left = '-9999px';
+      sliceVideo.style.width = '320px';
+      sliceVideo.style.height = '180px';
+      sliceVideo.muted = true;
+      sliceVideo.playsInline = true;
+      sliceVideo.src = media.blobUrl;
+      document.body.appendChild(sliceVideo);
+
+      await new Promise<void>((resolve, reject) => {
+        if (!sliceVideo) return reject(new Error('Video element not found'));
+        sliceVideo.onloadedmetadata = () => resolve();
+        sliceVideo.onerror = () => reject(new Error('Failed to load video for slicing'));
+        if (sliceVideo.readyState >= 1) resolve();
+      });
+
+      // Seek to inSeconds
+      sliceVideo.currentTime = inSeconds;
+      await new Promise<void>((resolve) => {
+        if (!sliceVideo) return resolve();
+        sliceVideo.onseeked = () => resolve();
+        setTimeout(resolve, 300);
+      });
+
+      // Capture stream from slice video
+      const stream: MediaStream = (sliceVideo as any).captureStream
+        ? (sliceVideo as any).captureStream()
+        : (sliceVideo as any).mozCaptureStream
+        ? (sliceVideo as any).mozCaptureStream()
+        : null;
+
+      if (!stream) {
+        throw new Error('Video stream capture is not supported in this browser.');
+      }
+
+      const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+        ? 'video/webm;codecs=vp9,opus'
+        : (MediaRecorder.isTypeSupported('video/webm') ? 'video/webm' : media.mimeType);
+
+      recorder = new MediaRecorder(stream, { mimeType: mime });
+      const recordedChunks: Blob[] = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          recordedChunks.push(e.data);
+        }
+      };
+
+      const exportPromise = new Promise<Blob>((resolve, reject) => {
+        if (!recorder) return reject(new Error('Recorder not initialized'));
+        recorder.onstop = () => {
+          const finalBlob = new Blob(recordedChunks, { type: mime });
+          resolve(finalBlob);
+        };
+        recorder.onerror = (e) => reject(new Error(`MediaRecorder error: ${(e as any).error?.message || 'Unknown'}`));
+      });
+
+      recorder.start(100);
+      await sliceVideo.play().catch(e => console.warn('[Capdio Library] sliceVideo play warning:', e));
+
+      if (trimProgressStatus) trimProgressStatus.textContent = 'Slicing video frames...';
+
+      // Monitor playback progress
+      await new Promise<void>((resolve) => {
+        progressTimer = setInterval(() => {
+          if (!sliceVideo) return;
+          const current = sliceVideo.currentTime;
+          const elapsed = Math.max(0, current - inSeconds);
+          const pct = Math.min(99, Math.round((elapsed / durationSeconds) * 100));
+
+          if (trimProgressBar) trimProgressBar.style.width = `${pct}%`;
+          if (trimProgressPercent) trimProgressPercent.textContent = `${pct}%`;
+          if (trimProgressStatus) trimProgressStatus.textContent = `Encoding slice (${pct}%)...`;
+
+          if (current >= outSeconds || sliceVideo.ended) {
+            clearInterval(progressTimer);
+            resolve();
+          }
+        }, 100);
+
+        // Safety guard: duration + 5s
+        timeoutGuard = setTimeout(() => {
+          clearInterval(progressTimer);
+          resolve();
+        }, Math.max(2000, (durationSeconds + 5) * 1000));
+      });
+
+      // Stop recorder and playback
+      if (sliceVideo) sliceVideo.pause();
+      if (recorder && recorder.state !== 'inactive') {
+        recorder.stop();
+      }
+
+      if (trimProgressStatus) trimProgressStatus.textContent = 'Packaging trimmed WebM file...';
+      if (trimProgressBar) trimProgressBar.style.width = '100%';
+      if (trimProgressPercent) trimProgressPercent.textContent = '100%';
+
+      const trimmedBlob = await exportPromise;
+
+      // Trigger automatic download
+      const cleanName = sanitizeFilename(sess.title || `recording-${sess.sessionId}`);
+      const filename = `${cleanName}-trim-${inSeconds.toFixed(1)}s-to-${outSeconds.toFixed(1)}s.webm`;
+
+      const a = document.createElement('a');
+      const exportUrl = URL.createObjectURL(trimmedBlob);
+      a.href = exportUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(exportUrl), 15000);
+
+      if (trimProgressStatus) trimProgressStatus.textContent = '✓ Trim exported successfully!';
+      setTimeout(() => {
+        if (trimProgressContainer) trimProgressContainer.classList.add('hidden');
+      }, 3500);
+
+      return { success: true, filename, sizeBytes: trimmedBlob.size };
+    } catch (err: any) {
+      console.error('[Capdio Library] Trim export failed:', err);
+      if (trimProgressContainer) trimProgressContainer.classList.add('hidden');
+      if (trimErrorBanner) {
+        trimErrorBanner.textContent = `Export failed: ${err.message || 'Unknown export error'}`;
+        trimErrorBanner.classList.remove('hidden');
+      }
+      return { success: false, error: err.message };
+    } finally {
+      if (progressTimer) clearInterval(progressTimer);
+      if (timeoutGuard) clearTimeout(timeoutGuard);
+      if (sliceVideo && sliceVideo.parentNode) {
+        sliceVideo.pause();
+        sliceVideo.removeAttribute('src');
+        sliceVideo.parentNode.removeChild(sliceVideo);
+      }
+      isExportingTrim = false;
+      if (exportTrimBtn) {
+        exportTrimBtn.disabled = false;
+        exportTrimBtn.textContent = '✂ Export Trimmed Video';
+      }
+      updateTrimUI();
+    }
+  }
+
+  if (exportTrimBtn) {
+    exportTrimBtn.addEventListener('click', () => {
+      exportTrimmedVideo();
+    });
   }
 
   function closePreview() {
@@ -183,6 +506,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     activePreviewSessionId = null;
     previewPanel?.classList.add('hidden');
     mainGrid?.classList.remove('has-preview');
+    if (trimInInput) trimInInput.value = '0.0';
+    if (trimOutInput) trimOutInput.value = '0.0';
+    if (trimProgressContainer) trimProgressContainer.classList.add('hidden');
+    if (trimErrorBanner) trimErrorBanner.classList.add('hidden');
+    if (trimVisualRange) {
+      trimVisualRange.style.left = '0%';
+      trimVisualRange.style.width = '100%';
+    }
     renderCards();
   }
 
@@ -480,6 +811,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     closePreview,
     exportRecording,
     deleteSession,
+    exportTrimmedVideo,
+    updateTrimUI,
+    getTrimState: () => {
+      const inVal = parseFloat(trimInInput?.value || '0');
+      const outVal = parseFloat(trimOutInput?.value || '0');
+      const total = getActiveTotalDuration();
+      return {
+        inSec: inVal,
+        outSec: outVal,
+        totalDuration: total,
+        validation: validateTrimBounds(inVal, outVal, total)
+      };
+    },
     getAllSessions: () => allSessions,
     getFilteredSessions: () => filteredSessions,
     getActivePreviewSessionId: () => activePreviewSessionId
