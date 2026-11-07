@@ -1,0 +1,7 @@
+# OpenCapture Studio Code Owners
+* @opencapture-core
+
+# Security critical paths requiring review
+/docs/SECURITY.md @opencapture-security
+/test-harness/extension/manifest.json @opencapture-security
+/apps/extension/manifest.json @opencapture-security

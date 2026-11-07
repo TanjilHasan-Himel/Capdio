@@ -1,0 +1,22 @@
+{
+  "name": "opencapture-studio",
+  "version": "0.1.0",
+  "description": "OpenCapture Studio - Privacy-first, local Chrome screen and tab recorder",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "npm run test:security",
+    "test:security": "node test-harness/test-security-boundaries.js",
+    "spike:ocs-002": "node test-harness/test-action-click.js",
+    "benchmark:ocs-003": "node test-harness/test-60s-harness.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "puppeteer-core": "^25.16.0"
+  }
+}

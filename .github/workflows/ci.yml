@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  security-and-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci || npm install
+      - name: Run Manifest & Security Audit
+        run: node -e "
+          const fs = require('fs');
+          const m = JSON.parse(fs.readFileSync('test-harness/extension/manifest.json', 'utf8'));
+          if (m.host_permissions && m.host_permissions.length > 0) throw new Error('Over-broad host permissions!');
+          const forbidden = ['<all_urls>', 'tabs', 'scripting', 'webRequest', 'cookies'];
+          for (const p of m.permissions || []) {
+            if (forbidden.includes(p)) throw new Error('Forbidden permission: ' + p);
+          }
+          console.log('Static manifest security audit passed');
+        "

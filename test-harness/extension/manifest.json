@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "OpenCapture Studio Spike Harness",
+  "version": "0.1.0",
+  "description": "Feasibility spike harness for Chrome capture APIs, offscreen audio/video recording, and permissions (OCS-002/004)",
+  "permissions": [
+    "tabCapture",
+    "offscreen",
+    "activeTab",
+    "storage"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "OpenCapture Spike"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self';"
+  }
+}

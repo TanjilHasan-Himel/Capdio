@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>OpenCapture Spike Target Fixture</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #090d16;
+      color: #f1f5f9;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      box-sizing: border-box;
+    }
+    h1 {
+      margin: 0 0 8px 0;
+      color: #38bdf8;
+      font-size: 24px;
+    }
+    #canvas {
+      border: 2px solid #334155;
+      border-radius: 8px;
+      background: #020617;
+      box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);
+    }
+  </style>
+</head>
+<body>
+  <h1>OpenCapture Studio — Test Fixture Tab</h1>
+  <canvas id="canvas" width="1280" height="720"></canvas>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    let frame = 0;
+
+    function render() {
+      frame++;
+      const time = performance.now() / 1000;
+
+      // Dark gradient background
+      const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+      grad.addColorStop(0, '#0f172a');
+      grad.addColorStop(1, '#1e1b4b');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Rotating geometric shapes
+      ctx.save();
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate(time * 1.5);
+      for (let i = 0; i < 8; i++) {
+        ctx.rotate((Math.PI * 2) / 8);
+        ctx.fillStyle = `hsl(${(frame * 2 + i * 45) % 360}, 80%, 60%)`;
+        ctx.fillRect(60, -15, 120, 30);
+      }
+      ctx.restore();
+
+      // Info overlay
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 32px monospace';
+      ctx.fillText(`OPENCAPTURE SPIKE TARGET`, 40, 60);
+
+      ctx.font = '24px monospace';
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillText(`Frame: ${frame} | Timestamp: ${time.toFixed(3)}s`, 40, 100);
+
+      requestAnimationFrame(render);
+    }
+    requestAnimationFrame(render);
+
+    // Audio synthesizer
+    let audioCtx = null;
+    let osc = null;
+
+    window.startAudio = function() {
+      try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(440, audioCtx.currentTime);
+
+        const lfo = audioCtx.createOscillator();
+        lfo.frequency.value = 3;
+        const lfoGain = audioCtx.createGain();
+        lfoGain.gain.value = 80;
+        lfo.connect(osc.frequency);
+        lfo.start();
+
+        gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        return true;
+      } catch (err) {
+        console.error('Audio start error:', err);
+        return false;
+      }
+    };
+
+    window.startAudio();
+  </script>
+</body>
+</html>
+
