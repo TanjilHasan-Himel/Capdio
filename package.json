@@ -1,7 +1,7 @@
 {
-  "name": "opencapture-studio",
+  "name": "capdio",
   "version": "0.1.0",
-  "description": "OpenCapture Studio - Privacy-first, local Chrome screen and tab recorder",
+  "description": "Capdio — Privacy-first screen recording workspace built for capturing, managing, and editing high-quality recordings—right from your browser.",
   "main": "index.js",
   "directories": {
     "doc": "docs"
@@ -12,9 +12,16 @@
     "spike:ocs-002": "node test-harness/test-action-click.js",
     "benchmark:ocs-003": "node test-harness/test-60s-harness.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "screen-recorder",
+    "chrome-extension",
+    "tab-capture",
+    "4k-recording",
+    "audio-recording",
+    "privacy-first"
+  ],
+  "author": "Tanjil Hasan",
+  "license": "MIT",
   "type": "module",
   "devDependencies": {
     "puppeteer-core": "^25.16.0"

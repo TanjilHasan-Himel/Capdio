@@ -29,3 +29,4 @@ jobs:
           }
           console.log('Static manifest security audit passed');
         "
+

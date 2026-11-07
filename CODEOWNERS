@@ -1,7 +1,9 @@
-# OpenCapture Studio Code Owners
-* @opencapture-core
+# Capdio Code Owners
+* @TanjilHasan-Himel
 
 # Security critical paths requiring review
-/docs/SECURITY.md @opencapture-security
-/test-harness/extension/manifest.json @opencapture-security
-/apps/extension/manifest.json @opencapture-security
+/docs/SECURITY.md @TanjilHasan-Himel
+/test-harness/extension/manifest.json @TanjilHasan-Himel
+/apps/extension/manifest.json @TanjilHasan-Himel
+
+

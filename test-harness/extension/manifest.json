@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "OpenCapture Studio Spike Harness",
+  "name": "Capdio — Screen Recorder (Harness)",
   "version": "0.1.0",
-  "description": "Feasibility spike harness for Chrome capture APIs, offscreen audio/video recording, and permissions (OCS-002/004)",
+  "description": "Capdio — Capture everything. Miss nothing. Privacy-first screen recording workspace.",
   "permissions": [
     "tabCapture",
     "offscreen",
