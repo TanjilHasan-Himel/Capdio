@@ -248,6 +248,10 @@ export interface DeleteRecordingDataMessage extends BaseMessage {
   };
 }
 
+export interface GetStorageEstimateMessage extends BaseMessage {
+  action: 'GET_STORAGE_ESTIMATE';
+}
+
 export interface OffscreenStartMessage extends BaseMessage {
   target: 'offscreen';
   action: 'OFFSCREEN_START';
@@ -316,6 +320,7 @@ export type ExtensionMessage =
   | UpdateSessionMetadataMessage
   | GetRecordingDataMessage
   | DeleteRecordingDataMessage
+  | GetStorageEstimateMessage
   | OffscreenStartMessage
   | OffscreenPauseMessage
   | OffscreenResumeMessage

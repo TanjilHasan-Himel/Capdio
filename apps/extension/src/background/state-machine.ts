@@ -189,8 +189,8 @@ export class RecordingStateMachine {
   /**
    * Helper: Finalization complete, media ready.
    */
-  public markReady(): void {
-    this.transitionTo('ready', 'Finalization complete');
+  public markReady(errorInfo?: { code: ErrorCode; message: string }): void {
+    this.transitionTo('ready', 'Finalization complete', errorInfo);
   }
 
   /**

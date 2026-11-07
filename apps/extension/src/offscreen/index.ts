@@ -5,6 +5,7 @@ import { registerMessageListener, sendTypedMessage, MessageBusError } from '../s
 import type { CaptureProfile, CaptureKind, AudioTrackMetadata } from '../shared/types.ts';
 import { getCodecCapabilityReport, selectBestCodec } from '../shared/codec-detector.ts';
 import { chunkStorage } from '../shared/chunk-storage.ts';
+import { quotaMonitor } from '../shared/quota-monitor.ts';
 
 console.log('[Capdio Offscreen] Host initializing...');
 
@@ -265,6 +266,18 @@ async function startCaptureAndRecord(payload: {
 
         // Bounded memory buffer: keep chunks for in-memory consolidation fallback
         recordedChunks.push(event.data);
+
+        // Proactive Mid-Recording Quota Monitor (OCS-203)
+        if (seq > 0 && seq % 5 === 0) {
+          quotaMonitor.getEstimate().then((est) => {
+            if (est.level === 'critical') {
+              console.warn(`[Capdio Offscreen] CRITICAL storage threshold reached: only ${(est.availableBytes / (1024 * 1024)).toFixed(1)} MB remaining. Auto-stopping capture.`);
+              sendTypedMessage('background', 'STOP_CAPTURE', { reason: 'low_storage' }).catch((e) => {
+                console.error('[Offscreen] Failed to signal low_storage stop:', e);
+              });
+            }
+          }).catch(() => {});
+        }
       }
     };
 
@@ -535,3 +548,8 @@ registerMessageListener('offscreen', {
 });
 
 console.log('[Capdio Offscreen] Host ready and message listeners registered');
+
+(window as any).__capdio = {
+  chunkStorage,
+  quotaMonitor
+};

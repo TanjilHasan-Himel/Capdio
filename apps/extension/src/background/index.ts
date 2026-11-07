@@ -4,6 +4,7 @@
 import { registerMessageListener, sendTypedMessage, MessageBusError } from '../shared/message-bus.ts';
 import { RecordingStateMachine } from './state-machine.ts';
 import { SessionRegistry } from './session-registry.ts';
+import { quotaMonitor } from '../shared/quota-monitor.ts';
 import type {
   StartCaptureMessage,
   PauseCaptureMessage,
@@ -198,12 +199,20 @@ export async function executeStopCapture(reason = 'user_stop'): Promise<any> {
             startMs: 0,
             bytes: offscreenRes.data.totalBytes || 0
           });
-          stateMachine.markReady();
-          await sessionRegistry.updateSessionStatus(sessionId, 'ready');
+          const errorInfo = reason === 'low_storage' ? {
+            code: 'E_STORAGE_QUOTA' as const,
+            message: 'Recording stopped automatically because storage quota reached critical limit. Your recording was safely saved.'
+          } : undefined;
+          stateMachine.markReady(errorInfo);
+          await sessionRegistry.updateSessionStatus(sessionId, 'ready', errorInfo?.code);
         } else {
           if (reason === 'source_tab_closed' || reason === 'track_ended') {
             stateMachine.markError('E_SOURCE_CLOSED', 'Captured source closed before recording data was produced');
             await sessionRegistry.updateSessionStatus(sessionId, 'error', 'E_SOURCE_CLOSED');
+            stateMachine.reset(true);
+          } else if (reason === 'low_storage') {
+            stateMachine.markError('E_STORAGE_QUOTA', 'Recording stopped: storage quota critically low');
+            await sessionRegistry.updateSessionStatus(sessionId, 'error', 'E_STORAGE_QUOTA');
             stateMachine.reset(true);
           } else {
             stateMachine.markReady();
@@ -276,6 +285,15 @@ registerMessageListener('background', {
         'E_SESSION_CONFLICT',
         `A capture session is already active in state '${stateMachine.currentStatus}'`
       );
+    }
+
+    // Pre-flight Storage Quota Check (OCS-203)
+    const quotaCheck = await quotaMonitor.canStartRecording();
+    if (!quotaCheck.ok) {
+      const quotaErr = new MessageBusError('E_STORAGE_QUOTA', quotaCheck.reason || 'Storage quota depleted');
+      stateMachine.markError('E_STORAGE_QUOTA', quotaErr.message);
+      stateMachine.reset(true);
+      throw quotaErr;
     }
 
     const targetKind = (msg.payload?.targetKind || 'tab') as 'tab' | 'screen' | 'window';
@@ -507,6 +525,10 @@ registerMessageListener('background', {
     await ensureOffscreenDocument();
     const res = await sendTypedMessage<any>('offscreen', 'DELETE_RECORDING_DATA', msg.payload);
     return res.data;
+  },
+
+  GET_STORAGE_ESTIMATE: async () => {
+    return await quotaMonitor.getEstimate();
   }
 });
 
@@ -566,6 +588,7 @@ console.log('[Capdio SW] Service Worker & FSM Coordinator initialized successful
 (self as any).__capdio = {
   stateMachine,
   sessionRegistry,
+  quotaMonitor,
   getElapsedRecordingSeconds,
   getActiveCapturedTabId: () => activeCapturedTabId,
   getLastRecordingResult: () => lastRecordingResult,

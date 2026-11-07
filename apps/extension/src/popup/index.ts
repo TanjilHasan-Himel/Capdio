@@ -73,10 +73,39 @@ document.addEventListener('DOMContentLoaded', async () => {
       elapsedSeconds = 0;
     }
     updateTimerDisplay();
-    timerInterval = setInterval(() => {
+    timerInterval = setInterval(async () => {
       if (currentStatus === 'recording') {
         elapsedSeconds++;
         updateTimerDisplay();
+
+        // Sync with background state for external events (low-storage auto-stop, tab closure)
+        if (elapsedSeconds % 2 === 0) {
+          try {
+            const check = await sendTypedMessage<any>('background', 'GET_STATUS');
+            if (check.success && check.data && check.data.status !== currentStatus) {
+              if (check.data.status === 'ready') {
+                stopTimer();
+                renderState('ready', check.data.activeSessionId);
+                if (check.data.lastTerminationReason === 'low_storage') {
+                  showNotice(
+                    'Low Storage Auto-Stop',
+                    'Recording stopped automatically because storage quota reached critical limits. Your recording was safely saved and is ready to download.'
+                  );
+                } else if (check.data.lastTerminationReason === 'source_tab_closed') {
+                  showNotice(
+                    'Captured Tab Closed',
+                    'The captured browser tab was closed. Your recording was safely saved up to that moment and is ready to download.'
+                  );
+                } else if (check.data.lastTerminationReason === 'track_ended') {
+                  showNotice(
+                    'Capture Ended',
+                    'Screen or window sharing was ended. Your recording was safely saved and is ready to download.'
+                  );
+                }
+              }
+            }
+          } catch (_) {}
+        }
       }
     }, 1000);
   }
@@ -176,10 +205,20 @@ document.addEventListener('DOMContentLoaded', async () => {
           'Capture Ended',
           'Screen or window sharing was ended. Your recording was safely saved and is ready to download.'
         );
+      } else if (statusRes.data.lastTerminationReason === 'low_storage') {
+        showNotice(
+          'Low Storage Auto-Stop',
+          'Recording stopped automatically because storage quota reached critical limits. Your recording was safely saved and is ready to download.'
+        );
       } else if (statusRes.data.lastError?.code === 'E_SOURCE_CLOSED') {
         showNotice(
           'Source Closed',
           statusRes.data.lastError.message || 'Captured source was closed before recording data was produced.'
+        );
+      } else if (statusRes.data.lastError?.code === 'E_STORAGE_QUOTA') {
+        showNotice(
+          'Insufficient Storage',
+          statusRes.data.lastError.message || 'Cannot record: local storage quota is critically low.'
         );
       }
 
@@ -245,12 +284,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             startTimer();
             renderState(res.data.status, res.data.sessionId);
           } else {
-            showNotice('Permission Refusal / Cancellation', res.error || 'Screen capture was cancelled or denied.');
+            const title = res.errorCode === 'E_STORAGE_QUOTA' ? 'Insufficient Storage' : 'Permission Refusal / Cancellation';
+            showNotice(title, res.error || 'Screen capture was cancelled or denied.');
             renderState('idle');
           }
         } catch (err: any) {
           console.warn('[Capdio Popup] Screen capture cancelled or denied:', err);
-          showNotice('Permission Refusal / Cancellation', err.message || 'Screen capture was cancelled or denied.');
+          const title = err.code === 'E_STORAGE_QUOTA' ? 'Insufficient Storage' : 'Permission Refusal / Cancellation';
+          showNotice(title, err.message || 'Screen capture was cancelled or denied.');
           renderState('idle');
         }
       } else {
@@ -292,12 +333,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             startTimer();
             renderState(res.data.status, res.data.sessionId);
           } else {
-            showNotice('Capture Failed', res.error || 'Unknown error');
+            const title = res.errorCode === 'E_STORAGE_QUOTA' ? 'Insufficient Storage' : 'Capture Failed';
+            showNotice(title, res.error || 'Unknown error');
             renderState('idle');
           }
         } catch (err: any) {
           console.error('[Capdio Popup] Tab capture start failed:', err);
-          showNotice('Capture Failed', err.message || 'Tab capture failed');
+          const title = err.code === 'E_STORAGE_QUOTA' ? 'Insufficient Storage' : 'Capture Failed';
+          showNotice(title, err.message || 'Tab capture failed');
           renderState('idle');
         }
       }
